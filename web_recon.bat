@@ -1,28 +1,19 @@
 @echo off
-set /p TARGET=Enter target URL or host: 
-for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(New-Object System.Uri('%TARGET%')).Host"`) do set HOST=%%H
+set /p TARGET=Enter target URL (e.g. https://example.com or example.com): 
+for /f "usebackq delims=" %%H in (`powershell -Command "(New-Object System.Uri('%TARGET%')).Host" 2^>nul`) do set HOST=%%H
 if "%HOST%"=="" set HOST=%TARGET%
-for /f "tokens=1-3 delims=/: " %%a in ("%HOST%") do set HOST=%%a
-for /f "tokens=1 delims=:" %%x in ("%HOST%") do set HOST=%%x
-set DATE=%DATE:~10,4%%DATE:~4,2%%DATE:~7,2%_%TIME:~0,2%%TIME:~3,2%%TIME:~6,2%
-set OUTPREFIX=%HOST%_%DATE%
-hostname
-whoami
-echo %HOST%
-ping -n 4 %HOST%
-nslookup %HOST% > %OUTPREFIX%_nslookup.txt 2>nul
-whois %HOST% > %OUTPREFIX%_whois.txt 2>nul || powershell -NoProfile -Command "(Resolve-DnsName -Name '%HOST%' -Type A) | Out-File -FilePath '%OUTPREFIX%_resolve.txt'"
-curl -I --max-time 15 "http://%HOST%" > %OUTPREFIX%_http_headers.txt 2>nul
-curl -I --max-time 15 "https://%HOST%" >> %OUTPREFIX%_http_headers.txt 2>nul
-where nmap >nul 2>&1 && nmap -Pn -sS -sV -p- -T4 -oA %OUTPREFIX%_nmap %HOST% || powershell -NoProfile -Command "Test-NetConnection -ComputerName '%HOST%' -Port 443 | Out-File -FilePath '%OUTPREFIX%_tnc_443.txt'"
-where openssl >nul 2>&1 && openssl s_client -connect "%HOST%:443" -servername "%HOST%" < NUL > %OUTPREFIX%_openssl_443.txt 2>nul
-where whatweb >nul 2>&1 && whatweb "http://%HOST%" -v > %OUTPREFIX%_whatweb.txt 2>nul
-where nikto >nul 2>&1 && nikto -host "http://%HOST%" -output %OUTPREFIX%_nikto.txt 2>nul
-tracert -d %HOST% > %OUTPREFIX%_tracert.txt
-route print > %OUTPREFIX%_route.txt
-netstat -ano > %OUTPREFIX%_netstat.txt
-arp -a > %OUTPREFIX%_arp.txt
-type %windir%\system32\drivers\etc\hosts > %OUTPREFIX%_hosts.txt
-powershell -NoProfile -Command "Invoke-WebRequest -Uri 'http://%HOST%' -Method Head -UseBasicParsing | Select-Object -Property Headers | Out-File -FilePath '%OUTPREFIX%_ps_headers.txt'"
-powershell -NoProfile -Command "Get-Service | Where-Object {$_.Status -eq 'Running'} | Out-File -FilePath '%OUTPREFIX%_services.txt'"
-powershell -NoProfile -Command "Get-Process | Sort-Object CPU -Descending | Select-Object -First 50 | Out-File -FilePath '%OUTPREFIX%_processes.txt'"
+echo %HOST% > target.txt
+nslookup %HOST% > nslookup.txt 2>nul
+ping -n 4 %HOST% > ping.txt 2>nul
+tracert -d %HOST% > traceroute.txt 2>nul
+where nmap >nul 2>&1 && nmap -Pn -sS -sV -O -p- -oA nmap_full %HOST% || true
+where curl >nul 2>&1 && curl -I --max-time 15 http://%HOST% > curl_http_headers.txt 2>nul || true
+where curl >nul 2>&1 && curl -I --max-time 15 https://%HOST% > curl_https_headers.txt 2>nul || true
+where whatweb >nul 2>&1 && whatweb -a 3 http://%HOST% > whatweb_http.txt 2>nul || true
+where whatweb >nul 2>&1 && whatweb -a 3 https://%HOST% > whatweb_https.txt 2>nul || true
+where nikto >nul 2>&1 && nikto -h http://%HOST% -o nikto_http.txt || true
+where openssl >nul 2>&1 && openssl s_client -connect %HOST%:443 -servername %HOST% -showcerts < NUL > openssl_sclient.pem 2>nul && openssl x509 -in openssl_sclient.pem -noout -text > openssl_cert.txt 2>nul || powershell -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $c=New-Object System.Net.WebClient; $c.DownloadString('https://api.hackertarget.com/sslcertlookup/?q=%HOST%') } catch {}" > ssl_lookup.txt 2>nul || true
+where nmap >nul 2>&1 && nmap --script=http-title,http-server-header -p 80,443,8080,8443 -oN nmap_web_services.txt %HOST% || true
+where curl >nul 2>&1 && curl -sL --max-time 20 http://%HOST% > page_http.html 2>nul || true
+where curl >nul 2>&1 && curl -sL --max-time 20 https://%HOST% > page_https.html 2>nul || true
+powershell -Command "Get-ChildItem Env:* | Out-File env_web_recon.txt"

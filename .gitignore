@@ -1,0 +1,111 @@
+# Recon / web recon outputs
+target.txt
+target_ip.txt
+env_web_recon.txt
+env.out
+env_*.txt
+
+# DNS / network text outputs
+dig_*.txt
+dig_any.txt
+dig_a.txt
+dig_ns.txt
+dig_soa.txt
+nslookup.txt
+host.txt
+whois.txt
+reverse_ip.txt
+
+# ICMP / traceroute / ping
+ping.txt
+traceroute.txt
+tracepath.txt
+traceroute_*.txt
+
+# HTTP / page captures / headers / certs
+curl_*.txt
+curl_http_headers.txt
+curl_https_headers.txt
+page_http.html
+page_https.html
+httprobe.out
+whatweb_*.txt
+whatweb*.txt
+gowitness_http/
+gowitness_*
+openssl_sclient.pem
+openssl_*.pem
+openssl_cert.txt
+openssl_*.txt
+sslscan.txt
+sslyze.txt
+ssl_lookup.txt
+
+# Scanners & brute tools
+nmap_full.*
+nmap_*.txt
+nmap_*.gnmap
+nmap_*.xml
+nmap_ip_top_ports.txt
+nmap_web_services.txt
+masscan.out
+masscan.*
+nikto*.txt
+nikto.out
+gobuster*.txt
+gobuster_*.txt
+hydra.out
+
+# SMB / enumeration outputs
+enum4linux.out
+smbclient.out
+smbmap.out
+
+# SNMP / LDAP / other tools
+snmpwalk.out
+ldapsearch.out
+
+# Generic outputs/logs
+*.out
+*.log
+*.tmp
+*.temp
+*.cache
+*.bak
+
+# HTML / scraped pages and artifacts
+*.html
+*.htm
+
+# Certificates / keys discovered during scans (do not commit)
+*.pem
+*.key
+*.crt
+
+# Windows-specific outputs
+curl_http_headers.txt
+curl_https_headers.txt
+page_http.html
+page_https.html
+openssl_sclient.pem
+ssl_lookup.txt
+nikto_http.txt
+nikto.out
+nmap_full.*
+
+# Tool directories / DBs
+/.gowitness/
+/.gowitness/
+/tools-output/
+/recon-output/
+/recon_results/
+/reports/
+/screenshots/
+/screenshots_*/
+
+# Ignore common OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
