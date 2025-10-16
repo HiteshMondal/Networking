@@ -1,0 +1,125 @@
+Specialized Search Engines — Quick Reference (Shodan, Censys, VirusTotal, Have I Been Pwned)
+
+NOTE — ethics & legality
+Before using these services for discovery or research, ensure you have explicit permission to probe or scan systems you do not own. Using the information for unauthorized access, exploitation, or harassment is illegal in many jurisdictions. Use APIs responsibly and obey terms of service and rate limits.
+
+1. SHODAN
+   Link: [https://www.shodan.io/](https://www.shodan.io/)
+   What it is: A search engine for internet-connected devices and services (IoT, servers, webcams, industrial devices). Indexes banners, open ports, product strings, HTTP responses and metadata.
+   Common uses: asset discovery, exposed device finding, threat research, vulnerability research (e.g., searching for specific product/version strings).
+   How to search (web UI):
+   • Basic: type keywords (e.g., nginx, mysql)
+   • Filters and examples:
+
+   * port:22            — devices with port 22 open
+   * product:nginx      — devices with nginx in banner
+   * net:203.0.113.0/24 — restrict to network
+   * org:"Example Inc"  — organization field
+   * country:IN         — country code filter
+   * tag:honeypot       — resources tagged by community
+   * ssl.cert.subject:"CN=example.com" — search SSL cert subject
+     • Boolean: combine terms: "nginx country:US port:80"
+     Shodan CLI/API examples (replace YOUR_API_KEY):
+     curl "[https://api.shodan.io/shodan/host/search?key=YOUR_API_KEY&query=nginx+port:80](https://api.shodan.io/shodan/host/search?key=YOUR_API_KEY&query=nginx+port:80)"
+
+# Get host details
+
+curl "[https://api.shodan.io/shodan/host/8.8.8.8?key=YOUR_API_KEY](https://api.shodan.io/shodan/host/8.8.8.8?key=YOUR_API_KEY)"
+Notes:
+• Use quotes for phrases.
+• Shodan has an advanced query syntax; you can search HTTP headers, cert fields, and metadata.
+• Free accounts have limited query volume and features.
+
+2. CENSYS
+   Link: [https://censys.io/](https://censys.io/)
+   What it is: Internet-wide scanner and searchable dataset focusing on TLS certificates, IPv4 hosts and protocols. Censys stores structured data and supports a powerful query language.
+   Common uses: certificate discovery, service metadata, historical datasets.
+   How to search (web UI & query language):
+   • Example simple queries:
+
+   * services.service_name: "http" and services.port: 443
+   * ip: 192.0.2.1
+   * autonomous_system.name: "Cloudflare"
+   * tags: "expired-certificate"
+     • Example for HTTPS servers returning a particular header:
+   * services.tls.certificates.leaf_data.subject.common_name: "example.com"
+     Censys API / CLI examples (replace ID and SECRET):
+     curl -u "CENSYS_API_ID:CENSYS_API_SECRET" 
+     [https://search.censys.io/api/v2/hosts/search](https://search.censys.io/api/v2/hosts/search) -d '{"q":"services.service_name: "http""}'
+     Notes:
+     • Censys V2 uses JSON bodies for search API.
+     • Use structured fields (services.*, protocols.*, metadata) for precise filtering.
+
+3. VIRUSTOTAL
+   Link: [https://www.virustotal.com/](https://www.virustotal.com/)
+   What it is: Malware and file/URL reputation service that aggregates many antivirus engines and scanners. It indexes file hashes, domains, IPs, URLs and provides relationships (samples, detections, communications).
+   Common uses: malware research, suspicious file/domain lookups, IOC enrichment.
+   How to search (web UI & API):
+   • By file hash (SHA256/SHA1/MD5)
+   • By domain or URL
+   • By IP address
+   VirusTotal API examples (replace YOUR_API_KEY):
+
+# File report by SHA256
+
+curl --request GET 
+--url "[https://www.virustotal.com/api/v3/files/{SHA256}](https://www.virustotal.com/api/v3/files/{SHA256})" 
+--header "x-apikey: YOUR_API_KEY"
+
+# Domain report
+
+curl --request GET 
+--url "[https://www.virustotal.com/api/v3/domains/example.com](https://www.virustotal.com/api/v3/domains/example.com)" 
+--header "x-apikey: YOUR_API_KEY"
+Tips:
+• Respect rate limits and API terms — commercial use requires a paid plan.
+• VirusTotal’s public API returns summarized data; more detailed feeds are available for partners.
+
+4. HAVE I BEEN PWNED (HIBP)
+   Link: [https://haveibeenpwned.com/](https://haveibeenpwned.com/)
+   What it is: Database of breached accounts and passwords. Useful to check if an email or domain appears in known data breaches. Also provides Pwned Passwords (hashed lists) for checking password exposures.
+   Common uses: breach lookup for emails/domains, checking password exposure.
+   How to search (web UI & API):
+   • Web UI: enter email or domain in search box to see breaches and breach details.
+   • API example (replace YOUR_API_KEY for authorised requests for domain searches):
+
+   # Pwned password (range-based k-Anonymity — no API key needed for passwords)
+
+   # To check password, hash with SHA1 client-side, send first 5 characters to /range endpoint
+
+   curl [https://api.pwnedpasswords.com/range/5BAA6](https://api.pwnedpasswords.com/range/5BAA6)
+
+   # Email/domain breach (requires API key for some endpoints):
+
+   curl -H "hibp-api-key: YOUR_API_KEY" "[https://haveibeenpwned.com/api/v3/breachedaccount/test@example.com](https://haveibeenpwned.com/api/v3/breachedaccount/test@example.com)"
+   Notes:
+   • Use the k-Anonymity / range API for password checks to avoid sending full passwords.
+   • Respect privacy and legal constraints when checking other people's emails.
+
+Examples & quick recipes
+• Find all hosts in India with open SSH and an Nginx server (Shodan):
+shodan search "port:22 nginx country:IN"
+
+• Find TLS certs issued to example.com in Censys:
+services.tls.certificates.leaf_data.subject.common_name: "example.com"
+
+• Check if a file (SHA256) has been seen by antivirus engines (VirusTotal):
+GET /api/v3/files/{SHA256}
+
+• Check if an email appears in public breaches (HIBP):
+GET /api/v3/breachedaccount/{email}
+
+API keys & rate limits
+• All these services require API keys for programmatic access. Keep keys secret.
+• Free tiers exist but often have low rate limits — consult each provider’s documentation for limits/pricing.
+
+Responsible use & OPSEC
+• Do not use these tools to plan unauthorized attacks. Use them for defensive research, asset inventory, incident response, or academic work.
+• When publishing findings, sanitize sensitive details and follow coordinated disclosure practices for discovered vulnerabilities.
+
+Where to learn more
+• Official docs: Shodan docs, Censys docs, VirusTotal API docs, Have I Been Pwned API docs (visit the links above).
+• Search each provider’s blog and GitHub for example scripts and SDKs.
+
+---
+
