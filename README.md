@@ -19,7 +19,6 @@ This toolkit automates many repetitive tasks used in **penetration testing, secu
 
 ---
 
-
 ---
 
 ## 🧰 Requirements
