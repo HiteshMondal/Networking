@@ -45,7 +45,7 @@ This toolkit automates many repetitive tasks used in **penetration testing, secu
 
 ### 🧩 System Profiling
 ```bash
-bash system_info.sh
+system_info.sh
 ```
 
 ## 🧹 Output Management
