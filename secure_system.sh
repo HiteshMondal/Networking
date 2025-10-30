@@ -57,10 +57,8 @@ sudo usermod -L daemon 2>/dev/null || true
 sudo passwd -l root 2>/dev/null || true
 command -v apparmor_parser >/dev/null 2>&1 && sudo systemctl enable apparmor 2>/dev/null || true
 command -v selinuxenabled >/dev/null 2>&1 && sudo setenforce 1 2>/dev/null || true
-sudo rm -f /etc/cron.d/* 2>/dev/null || true
+sudo rm -f /etc/cron.d/unused_* 2>/dev/null || true
 sudo systemctl daemon-reload 2>/dev/null || true
 sudo journalctl --rotate 2>/dev/null || true
 sudo journalctl --vacuum-time=7d 2>/dev/null || true
-sudo chattr +i /etc/hosts 2>/dev/null || true
-sudo chattr +i /etc/issue 2>/dev/null || true
-sudo chattr +i /etc/issue.net 2>/dev/null || true
+
