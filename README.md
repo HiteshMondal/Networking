@@ -6,6 +6,60 @@ This toolkit automates many repetitive tasks used in **penetration testing, secu
 
 ---
 
+## ⚠️ Caution: System Hardening Scripts
+
+Read this carefully before running any script from this repository.
+
+These shell scripts make system-level security and configuration changes. They are intended for testing, controlled environments, or system hardening under expert supervision — not for casual or blind execution.
+
+Running these scripts may:
+
+Modify kernel and network parameters (sysctl)
+
+Change critical file permissions and ownership
+
+Disable or remove system services (e.g., NFS, RPC, SMB, SNMP, CUPS)
+
+Alter or reset firewall and iptables/ufw/firewalld rules
+
+Lock user accounts (including root)
+
+Remove or change SUID/SGID bits from binaries
+
+Restrict ICMP (ping) responses and other network functions
+
+⚠️ Potential risks if run blindly:
+
+Permanent loss of remote (SSH) access due to strict firewall rules
+
+System instability or boot/login issues if critical binaries lose permissions
+
+Inability to recover root access if password and sudo are both disabled
+
+Service downtime if essential daemons are stopped or disabled
+
+✅ Before You Run These Scripts
+
+Run only on a system you own or control, not on production machines.
+
+Ensure you have physical or console access (not just SSH).
+
+Backup your system or create a VM snapshot first.
+
+Read each script carefully and comment out or modify lines as needed.
+
+If using SSH, verify the script includes an explicit rule to allow SSH (port 22) before enabling firewall DROP policies.
+
+Test in a virtual machine or sandbox before deployment.
+
+🧠 Recommended Use
+
+For educational, audit, or research purposes only.
+
+If you intend to deploy in production, review and tailor configurations based on your environment, security policies, and OS distribution.
+
+Always validate the system state after execution (network, user accounts, services).
+
 ## 🚀 Features
 
 | Category | Description | Platforms |
