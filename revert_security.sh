@@ -66,4 +66,8 @@ sudo usermod -U guest 2>/dev/null || true
 sudo usermod -U daemon 2>/dev/null || true
 sudo passwd -u root 2>/dev/null || true
 
+sudo apt update
+sudo apt install --reinstall pkexec polkitd sudo passwd mount util-linux dbus -y
+sudo systemctl restart polkit
+
 echo "System hardening reverted. Please reboot."
