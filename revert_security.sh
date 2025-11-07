@@ -18,6 +18,18 @@ sudo sysctl -w vm.mmap_min_addr=0
 sudo sysctl -p || true
 
 # --- Restore default permissions ---
+sudo chmod u+s /usr/lib/polkit-1/polkit-agent-helper-1
+sudo systemctl restart polkit
+sudo chmod u+s /bin/ping
+sudo chmod u+s /bin/mount
+sudo chmod u+s /bin/umount
+sudo chmod u+s /usr/bin/sudo
+sudo chmod u+s /usr/bin/passwd
+sudo chmod u+s /usr/bin/chsh
+sudo chmod u+s /usr/bin/chfn
+sudo chmod u+s /usr/bin/gpasswd
+sudo chmod u+s /usr/lib/dbus-1.0/dbus-daemon-launch-helper
+sudo chmod u+s /usr/lib/polkit-1/polkit-agent-helper-1
 sudo chmod 644 /etc/issue /etc/issue.net 2>/dev/null || true
 sudo chmod 644 /boot/grub/grub.cfg 2>/dev/null || true
 sudo chmod 644 /etc/ssh/ssh_host_* 2>/dev/null || true
