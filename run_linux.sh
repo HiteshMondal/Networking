@@ -2,11 +2,10 @@
 
 set -e
 
-# Color codes for better UI
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
+BLUE='\033[1;36m'
 NC='\033[0m' # No Color
 
 # Directory setup
@@ -20,14 +19,12 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 mkdir -p "${OUTPUT_DIR}"
 mkdir -p "${LOGS_DIR}"
 
-# Function to print colored messages
 print_message() {
     local color=$1
     local message=$2
     echo -e "${color}${message}${NC}"
 }
 
-# Function to log execution
 log_execution() {
     local script_name=$1
     local log_file="${LOGS_DIR}/${script_name}_${TIMESTAMP}.log"
@@ -39,7 +36,6 @@ log_execution() {
     echo "${log_file}"
 }
 
-# Function to run a script with logging
 run_script() {
     local script_name=$1
     local script_path="${SCRIPTS_PATH}/${script_name}"
@@ -69,35 +65,42 @@ run_script() {
     else
         print_message "${RED}" "✗ ${script_name} failed with exit code ${exit_code}"
     fi
-    
     echo "=== Execution ended at $(date) ===" >> "${log_file}"
     echo ""
 }
 
-# Main menu
 show_menu() {
     clear
-    print_message "${BLUE}" "╔════════════════════════════════════════════════════════╗"
-    print_message "${BLUE}" "║   Networking & Cybersecurity Tools - Linux Runner     ║"
-    print_message "${BLUE}" "╚════════════════════════════════════════════════════════╝"
+    print_message "${BLUE}" "██████████████████████████████████████████████████████████████"
+    print_message "${BLUE}" "█                                                            █"
+    print_message "${BLUE}" "█   🛡  NETWORKING & CYBERSECURITY OPERATIONS CONSOLE         █"
+    print_message "${BLUE}" "█        Advanced Linux Security & SOC Toolkit               █"
+    print_message "${BLUE}" "█                                                            █"
+    print_message "${BLUE}" "██████████████████████████████████████████████████████████████"
     echo ""
-    print_message "${GREEN}" "Output Directory: ${OUTPUT_DIR}"
-    print_message "${GREEN}" "Logs Directory: ${LOGS_DIR}"
+    print_message "${GREEN}" " 👤 $(whoami)  │  🖥 $(hostname)  │  🕒 $(date '+%H:%M:%S')  │  🔐 $([ "$EUID" -eq 0 ] && echo ROOT || echo USER)"
     echo ""
-    print_message "${YELLOW}" "Available Tools:"
-    echo "  1) System Information Collection"
-    echo "  2) Detect Suspicious Network Activity"
-    echo "  3) Secure System Configuration"
-    echo "  4) Revert Security Changes"
-    echo "  5) Forensic Data Collection"
-    echo "  6) Web Reconnaissance"
-    echo "  7) Open Dashboard"
-    echo "  8) Clean Output/Logs Directories"
-    echo "  0) Exit"
-    echo ""
+    print_message "${CYAN:-$BLUE}" " 📂 Output : ${OUTPUT_DIR}"
+    print_message "${CYAN:-$BLUE}" " 📄 Logs   : ${LOGS_DIR}"
+    print_message "${YELLOW}" "╔═══════════════════════ SECURITY OPERATIONS ═══════════════════════╗"
+    echo "║  [1] 🖥  System Information Collection                              ║"
+    echo "║  [2] 🌐 Network Threat Detection                                   ║"
+    echo "║  [3] 🔐 System Hardening                                           ║"
+    echo "║  [4] ↩  Revert Hardening                                           ║"
+    echo "║  [5] 🧪 Forensic Evidence Collection                               ║"
+    echo "║  [6] 🕵️  Web Reconnaissance                                        ║"
+    echo "║  [7] 📊 Open Security Dashboard                                    ║"
+    print_message "${YELLOW}" "╚════════════════════════════════════════════════════════════════════╝"
+    print_message "${RED}" "╔══════════════════════ MAINTENANCE / CLEANUP ═══════════════════════╗"
+    echo "║  [8] 🗑  Purge Output & Logs   (⚠ IRREVERSIBLE)                     ║"
+    print_message "${RED}" "╚════════════════════════════════════════════════════════════════════╝"
+    print_message "${BLUE}" "╔══════════════════════════ EXIT CONSOLE ════════════════════════════╗"
+    echo "║  [0] ❌ Exit                                                        ║"
+    print_message "${BLUE}" "╚════════════════════════════════════════════════════════════════════╝"
+    echo "" 
+    print_message "${GREEN}" " ➜ Enter your selection and press [ENTER]"
 }
 
-# Function to open dashboard
 open_dashboard() {
     local dashboard_path="${SCRIPT_DIR}/dashboard/index.html"
     if [ ! -f "${dashboard_path}" ]; then
@@ -118,7 +121,6 @@ open_dashboard() {
     fi
 }
 
-# Function to clean directories
 clean_directories() {
     print_message "${YELLOW}" "This will delete all files in output and logs directories."
     read -p "Are you sure? (yes/no): " confirm
@@ -132,7 +134,6 @@ clean_directories() {
     fi
 }
 
-# Main loop
 main() {
     # Check if running with appropriate permissions
     if [ "$EUID" -ne 0 ] && [ "${1}" != "--no-root-check" ]; then
