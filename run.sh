@@ -55,7 +55,7 @@ run_script() {
     print_message "${YELLOW}" "Log file: ${log_file}"
     
     # Run script and capture output
-    cd "${OUTPUT_DIR}"
+    cd "${OUTPUT_DIR}" || exit 1
     bash "${script_path}" 2>&1 | tee -a "${log_file}"
     local exit_code=${PIPESTATUS[0]}
     cd "${SCRIPT_DIR}"
@@ -179,7 +179,6 @@ main() {
                 print_message "${RED}" "Invalid option. Please try again."
                 ;;
         esac
-        
         echo ""
         read -p "Press Enter to continue..."
     done

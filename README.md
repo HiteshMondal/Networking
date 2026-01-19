@@ -38,27 +38,10 @@ Inability to recover root access if password and sudo are both disabled
 
 Service downtime if essential daemons are stopped or disabled
 
-✅ Before You Run These Scripts
-
-Run only on a system you own or control, not on production machines.
-
-Ensure you have physical or console access (not just SSH).
-
-Backup your system or create a VM snapshot first.
-
-Read each script carefully and comment out or modify lines as needed.
-
-If using SSH, verify the script includes an explicit rule to allow SSH (port 22) before enabling firewall DROP policies.
-
-Test in a virtual machine or sandbox before deployment.
-
-🧠 Recommended Use
-
-For educational, audit, or research purposes only.
-
-If you intend to deploy in production, review and tailor configurations based on your environment, security policies, and OS distribution.
-
-Always validate the system state after execution (network, user accounts, services).
+✅ Run this script to revert changes to normal 👨‍🔧
+```bash
+revert_security.sh
+```
 
 ## 🚀 Features
 
@@ -91,14 +74,16 @@ Always validate the system state after execution (network, user accounts, servic
 
 ---
 
-## ⚙️ Usage Examples
+> Many commands require **sudo/root/admin privileges** and may modify system settings.
 
-> ⚠️ Run these scripts in **testing or controlled environments only.**
-> Many commands require **root/admin privileges** and may modify system settings.
-
-### 🧩 System Profiling
+### 🧩 Run
+For Linux
 ```bash
-system_info.sh
+run.sh
+```
+For Windows
+```bash
+run.bat
 ```
 
 ## 🧹 Output Management
