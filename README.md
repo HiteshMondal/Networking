@@ -37,7 +37,7 @@ Service downtime if essential daemons are stopped or disabled
 🛠️ Run this script to revert changes to normal ⚙️
 ```bash
 cd scripts
-revert_security.sh
+./revert_security.sh
 ```
 ✅
 ## 🚀 Features
@@ -71,9 +71,8 @@ revert_security.sh
 
 ---
 
-> Many commands require **sudo/root/admin privileges** and may modify system settings.
-
 ### 🧩 Run
+Many commands require **sudo/root/admin privileges** and may modify system settings.
 For Linux
 ```bash
 run.sh

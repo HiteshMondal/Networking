@@ -89,36 +89,15 @@ show_menu() {
     echo "║  [4] ↩  Revert Hardening                                           ║"
     echo "║  [5] 🧪 Forensic Evidence Collection                               ║"
     echo "║  [6] 🕵️  Web Reconnaissance                                        ║"
-    echo "║  [7] 📊 Open Security Dashboard                                    ║"
     print_message "${YELLOW}" "╚════════════════════════════════════════════════════════════════════╝"
     print_message "${RED}" "╔══════════════════════ MAINTENANCE / CLEANUP ═══════════════════════╗"
-    echo "║  [8] 🗑  Purge Output & Logs   (⚠ IRREVERSIBLE)                     ║"
+    echo "║  [7] 🗑  Purge Output & Logs   (⚠ IRREVERSIBLE)                     ║"
     print_message "${RED}" "╚════════════════════════════════════════════════════════════════════╝"
     print_message "${BLUE}" "╔══════════════════════════ EXIT CONSOLE ════════════════════════════╗"
     echo "║  [0] ❌ Exit                                                        ║"
     print_message "${BLUE}" "╚════════════════════════════════════════════════════════════════════╝"
     echo "" 
     print_message "${GREEN}" " ➜ Enter your selection and press [ENTER]"
-}
-
-open_dashboard() {
-    local dashboard_path="${SCRIPT_DIR}/dashboard/index.html"
-    if [ ! -f "${dashboard_path}" ]; then
-        print_message "${RED}" "Error: Dashboard not found at ${dashboard_path}"
-        return 1
-    fi
-    print_message "${BLUE}" "Opening dashboard..."
-    # If running as root, open dashboard as the original user
-    if [ "$EUID" -eq 0 ] && [ -n "$SUDO_USER" ]; then
-        sudo -u "$SUDO_USER" xdg-open "${dashboard_path}" >/dev/null 2>&1 &
-        return
-    fi
-    # Normal user execution
-    if command -v xdg-open &>/dev/null; then
-        xdg-open "${dashboard_path}" &
-    else
-        print_message "${YELLOW}" "Please open ${dashboard_path} manually"
-    fi
 }
 
 clean_directories() {
@@ -166,9 +145,6 @@ main() {
                 run_script "web_recon.sh"
                 ;;
             7)
-                open_dashboard
-                ;;
-            8)
                 clean_directories
                 ;;
             0)
