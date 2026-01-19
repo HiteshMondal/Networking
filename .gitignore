@@ -73,10 +73,6 @@ ldapsearch.out
 *.cache
 *.bak
 
-# HTML / scraped pages and artifacts
-*.html
-*.htm
-
 # Certificates / keys discovered during scans (do not commit)
 *.pem
 *.key
