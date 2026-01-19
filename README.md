@@ -28,21 +28,18 @@ Remove or change SUID/SGID bits from binaries
 
 Restrict ICMP (ping) responses and other network functions
 
-⚠️ Potential risks if run blindly:
-
 Permanent loss of remote (SSH) access due to strict firewall rules
 
 System instability or boot/login issues if critical binaries lose permissions
 
-Inability to recover root access if password and sudo are both disabled
-
 Service downtime if essential daemons are stopped or disabled
 
-✅ Run this script to revert changes to normal 👨‍🔧
+🛠️ Run this script to revert changes to normal ⚙️
 ```bash
+cd scripts
 revert_security.sh
 ```
-
+✅
 ## 🚀 Features
 
 | Category | Description | Platforms |
