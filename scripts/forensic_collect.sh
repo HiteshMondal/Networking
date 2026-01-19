@@ -14,7 +14,6 @@ cp -r /var/log/forensic_varlog 2>/dev/null || true
 cp /var/log/syslog forensic_output/ 2>/dev/null || true
 cp /var/log/messages forensic_output/ 2>/dev/null || true
 ls -l /var/log > forensic_output/var_log_listing.txt 2>/dev/null || true
-last -a > forensic_output/last.txt 2>/dev/null || last > forensic_output/last.txt
 lastlog > forensic_output/lastlog.txt 2>/dev/null || true
 faillog -v > forensic_output/faillog.txt 2>/dev/null || true
 ausearch --start today > forensic_output/ausearch_today.log 2>/dev/null || ausearch > forensic_output/ausearch_all.log 2>/dev/null || true
@@ -27,7 +26,6 @@ lsof -i > forensic_output/lsof_network.txt 2>/dev/null || true
 ip -s link > forensic_output/ip_stats.txt 2>/dev/null || ip link > forensic_output/ip_link.txt 2>/dev/null || true
 ip -4 addr show > forensic_output/ip_addr.txt
 ip route show > forensic_output/ip_route.txt
-arp -an > forensic_output/arp.txt
 iptables-save > forensic_output/iptables_rules.txt 2>/dev/null || nft list ruleset > forensic_output/nft_rules.txt 2>/dev/null || true
 conntrack -L > forensic_output/conntrack.txt 2>/dev/null || true
 tcpdump -nn -s 0 -c 1000 -w forensic_output/tcpdump_capture.pcap 2>/dev/null || tshark -i any -c 1000 -w forensic_output/tshark_capture.pcap 2>/dev/null || true

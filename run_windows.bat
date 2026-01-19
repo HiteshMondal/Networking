@@ -1,13 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: Networking & Cybersecurity Tools - Windows Runner Script
-:: This script provides a menu-driven interface to run various security tools
-
 title Networking ^& Cybersecurity Tools - Windows Runner
-
-:: Set up colors (Windows 10+)
-:: Note: Color codes work with echo command in Windows 10+
 
 :: Directory setup
 set "SCRIPT_DIR=%~dp0"
@@ -39,11 +33,9 @@ echo   2) Detect Suspicious Network Activity
 echo   3) Secure System Configuration
 echo   4) Forensic Data Collection
 echo   5) Web Reconnaissance
-echo.
-echo   6) Run All Security Scripts (1-5)
-echo   7) Open Dashboard
-echo   8) Clean Output/Logs Directories
-echo   9) Open Output Folder
+echo   6) Open Dashboard
+echo   7) Clean Output/Logs Directories
+echo   8) Open Output Folder
 echo   0) Exit
 echo.
 
@@ -54,10 +46,9 @@ if "%choice%"=="2" goto detect_suspicious
 if "%choice%"=="3" goto secure_system
 if "%choice%"=="4" goto forensic_collect
 if "%choice%"=="5" goto web_recon
-if "%choice%"=="6" goto run_all
-if "%choice%"=="7" goto open_dashboard
-if "%choice%"=="8" goto clean_dirs
-if "%choice%"=="9" goto open_output
+if "%choice%"=="6" goto open_dashboard
+if "%choice%"=="7" goto clean_dirs
+if "%choice%"=="8" goto open_output
 if "%choice%"=="0" goto exit_script
 
 echo Invalid option. Please try again.
@@ -136,20 +127,6 @@ goto menu
 call :run_script "web_recon.bat"
 goto menu
 
-:: Run all scripts
-:run_all
-cls
-echo ============================================================
-echo Running all security scripts...
-echo ============================================================
-echo.
-
-call :run_script "system_info.bat"
-call :run_script "detect_suspicious_net_windows.bat"
-call :run_script "secure_system.bat"
-call :run_script "forensic_collect.bat"
-call :run_script "web_recon.bat"
-
 echo.
 echo ============================================================
 echo [SUCCESS] All scripts completed
@@ -220,10 +197,3 @@ echo ============================================================
 echo.
 timeout /t 2 >nul
 exit /b 0
-
-:: Helper function for tee functionality (save this as tee_to_file.bat in root)
-:tee_to_file
-:: This is a placeholder - Windows doesn't have native tee
-:: The actual implementation would need a separate helper script
-:: For now, output will only go to log file
-:: Alternative: Use PowerShell or download GNU tee for Windows

@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Networking & Cybersecurity Tools - Linux Runner Script
-# This script provides a menu-driven interface to run various security tools
-
 set -e
 
 # Color codes for better UI
@@ -34,10 +31,11 @@ print_message() {
 log_execution() {
     local script_name=$1
     local log_file="${LOGS_DIR}/${script_name}_${TIMESTAMP}.log"
-    echo "=== Execution started at $(date) ===" | tee -a "${log_file}"
-    echo "Script: ${script_name}" | tee -a "${log_file}"
-    echo "Output directory: ${OUTPUT_DIR}" | tee -a "${log_file}"
-    echo "======================================" | tee -a "${log_file}"
+    {
+        echo "=== Execution started at $(date) ==="
+        echo "Script: ${script_name}"
+        echo "Output directory: ${OUTPUT_DIR}"
+    } | tee -a "${log_file}"
     echo "${log_file}"
 }
 
@@ -56,9 +54,8 @@ run_script() {
         chmod +x "${script_path}"
     fi
     
-    local log_file=$(log_execution "${script_name%.sh}")
-    
-    print_message "${BLUE}" "Running ${script_name}..."
+    local log_file
+    log_file=$(log_execution "${script_name%.sh}" | tail -n 1)
     print_message "${YELLOW}" "Log file: ${log_file}"
     
     # Run script and capture output
@@ -94,10 +91,8 @@ show_menu() {
     echo "  4) Revert Security Changes"
     echo "  5) Forensic Data Collection"
     echo "  6) Web Reconnaissance"
-    echo ""
-    echo "  7) Run All Security Scripts (1-6)"
-    echo "  8) Open Dashboard"
-    echo "  9) Clean Output/Logs Directories"
+    echo "  7) Open Dashboard"
+    echo "  8) Clean Output/Logs Directories"
     echo "  0) Exit"
     echo ""
 }
@@ -105,24 +100,21 @@ show_menu() {
 # Function to open dashboard
 open_dashboard() {
     local dashboard_path="${SCRIPT_DIR}/dashboard/index.html"
-    
     if [ ! -f "${dashboard_path}" ]; then
         print_message "${RED}" "Error: Dashboard not found at ${dashboard_path}"
         return 1
     fi
-    
     print_message "${BLUE}" "Opening dashboard..."
-    
-    if command -v xdg-open &> /dev/null; then
+    # If running as root, open dashboard as the original user
+    if [ "$EUID" -eq 0 ] && [ -n "$SUDO_USER" ]; then
+        sudo -u "$SUDO_USER" xdg-open "${dashboard_path}" >/dev/null 2>&1 &
+        return
+    fi
+    # Normal user execution
+    if command -v xdg-open &>/dev/null; then
         xdg-open "${dashboard_path}" &
-    elif command -v gnome-open &> /dev/null; then
-        gnome-open "${dashboard_path}" &
-    elif command -v firefox &> /dev/null; then
-        firefox "${dashboard_path}" &
-    elif command -v chromium-browser &> /dev/null; then
-        chromium-browser "${dashboard_path}" &
     else
-        print_message "${YELLOW}" "Please open ${dashboard_path} in your browser manually"
+        print_message "${YELLOW}" "Please open ${dashboard_path} manually"
     fi
 }
 
@@ -140,20 +132,6 @@ clean_directories() {
     fi
 }
 
-# Function to run all scripts
-run_all_scripts() {
-    print_message "${BLUE}" "Running all security scripts..."
-    echo ""
-    
-    run_script "system_info.sh"
-    run_script "detect_suspicious_net_linux.sh"
-    run_script "secure_system.sh"
-    run_script "forensic_collect.sh"
-    run_script "web_recon.sh"
-    
-    print_message "${GREEN}" "✓ All scripts completed"
-}
-
 # Main loop
 main() {
     # Check if running with appropriate permissions
@@ -167,7 +145,6 @@ main() {
         show_menu
         read -p "Enter your choice [0-9]: " choice
         echo ""
-        
         case ${choice} in
             1)
                 run_script "system_info.sh"
@@ -188,12 +165,9 @@ main() {
                 run_script "web_recon.sh"
                 ;;
             7)
-                run_all_scripts
-                ;;
-            8)
                 open_dashboard
                 ;;
-            9)
+            8)
                 clean_directories
                 ;;
             0)
