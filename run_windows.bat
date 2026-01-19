@@ -48,7 +48,7 @@ exit /b 0
 
 :check_script
 REM %1 = script name
-set "script_path=%SCRIPT_DIR%\%~1_windows.bat"
+set "script_path=%SCRIPT_DIR%\%~1.bat"
 
 if not exist "%script_path%" (
     echo %RED%Error: Script not found: %script_path%%NC%
@@ -59,7 +59,7 @@ exit /b 0
 :execute_script
 REM %1 = script name
 set "script_name=%~1"
-set "script_path=%SCRIPT_DIR%\%~1_windows.bat"
+set "script_path=%SCRIPT_DIR%\%~1.bat"
 
 echo %BLUE%=============================================================%NC%
 echo %GREEN%▶ Executing: %script_name%%NC%

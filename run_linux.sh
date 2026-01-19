@@ -50,7 +50,7 @@ function log_message() {
 # Check if script exists
 function check_script() {
     local script_name=$1
-    local script_path="$SCRIPT_DIR/${script_name}_linux.sh"
+    local script_path="$SCRIPT_DIR/${script_name}.sh"
     
     if [ ! -f "$script_path" ]; then
         echo -e "${RED}Error: Script not found: $script_path${NC}"
@@ -68,7 +68,7 @@ function check_script() {
 # Execute script with logging
 function execute_script() {
     local script_name=$1
-    local script_path="$SCRIPT_DIR/${script_name}_linux.sh"
+    local script_path="$SCRIPT_DIR/${script_name}.sh"
     
     echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}▶ Executing: $script_name${NC}"
