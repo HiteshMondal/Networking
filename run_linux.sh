@@ -1,174 +1,214 @@
 #!/bin/bash
-# CyberSec Toolkit - Linux Runner
+
+# Networking & Cybersecurity Tools - Linux Runner Script
+# This script provides a menu-driven interface to run various security tools
 
 set -e
 
-# ─────────────────────────────────────────────────────────────
-# Paths (absolute, single source of truth)
-# ─────────────────────────────────────────────────────────────
-
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-SCRIPT_DIR="$BASE_DIR/scripts"
-DASHBOARD_DIR="$BASE_DIR/dashboard"
-LOG_DIR="$BASE_DIR/logs"
-OUTPUT_DIR="$BASE_DIR/outputs"
-
-WEB_RECON_DIR="$OUTPUT_DIR/web_recon"
-NET_DIR="$OUTPUT_DIR/network"
-FORENSIC_DIR="$OUTPUT_DIR/forensics"
-SYSTEM_DIR="$OUTPUT_DIR/system"
-
-TIMESTAMP="$(date +"%Y%m%d_%H%M%S")"
-LOG_FILE="$LOG_DIR/run_$TIMESTAMP.log"
-
-mkdir -p "$LOG_DIR" "$WEB_RECON_DIR" "$NET_DIR" "$FORENSIC_DIR" "$SYSTEM_DIR"
-
-# Export for child scripts
-export OUTPUT_DIR WEB_RECON_DIR NET_DIR FORENSIC_DIR SYSTEM_DIR
-
-# ─────────────────────────────────────────────────────────────
-# Colors
-# ─────────────────────────────────────────────────────────────
-
+# Color codes for better UI
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
-# ─────────────────────────────────────────────────────────────
-# Banner
-# ─────────────────────────────────────────────────────────────
+# Directory setup
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS_PATH="${SCRIPT_DIR}/scripts"
+OUTPUT_DIR="${SCRIPT_DIR}/output"
+LOGS_DIR="${SCRIPT_DIR}/logs"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-show_banner() {
-    clear
-    echo -e "${CYAN}"
-    echo "╔══════════════════════════════════════════════════════╗"
-    echo "║   🛡 CyberSec Toolkit – Linux Runner 🛡               ║"
-    echo "║   Network Security & Forensics Suite                ║"
-    echo "╚══════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+# Create necessary directories
+mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${LOGS_DIR}"
+
+# Function to print colored messages
+print_message() {
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}"
 }
 
-# ─────────────────────────────────────────────────────────────
-# Logging
-# ─────────────────────────────────────────────────────────────
-
-log_message() {
-    local level="$1"
-    local msg="$2"
-    echo "[$(date +"%F %T")] [$level] $msg" | tee -a "$LOG_FILE"
+# Function to log execution
+log_execution() {
+    local script_name=$1
+    local log_file="${LOGS_DIR}/${script_name}_${TIMESTAMP}.log"
+    echo "=== Execution started at $(date) ===" | tee -a "${log_file}"
+    echo "Script: ${script_name}" | tee -a "${log_file}"
+    echo "Output directory: ${OUTPUT_DIR}" | tee -a "${log_file}"
+    echo "======================================" | tee -a "${log_file}"
+    echo "${log_file}"
 }
 
-# ─────────────────────────────────────────────────────────────
-# Script helpers
-# ─────────────────────────────────────────────────────────────
-
-check_script() {
-    local name="$1"
-    local path="$SCRIPT_DIR/${name}.sh"
-
-    if [[ ! -f "$path" ]]; then
-        echo -e "${RED}Missing script: $path${NC}"
+# Function to run a script with logging
+run_script() {
+    local script_name=$1
+    local script_path="${SCRIPTS_PATH}/${script_name}"
+    
+    if [ ! -f "${script_path}" ]; then
+        print_message "${RED}" "Error: Script ${script_name} not found!"
         return 1
     fi
-
-    [[ -x "$path" ]] || chmod +x "$path"
-    return 0
+    
+    if [ ! -x "${script_path}" ]; then
+        print_message "${YELLOW}" "Making script executable..."
+        chmod +x "${script_path}"
+    fi
+    
+    local log_file=$(log_execution "${script_name%.sh}")
+    
+    print_message "${BLUE}" "Running ${script_name}..."
+    print_message "${YELLOW}" "Log file: ${log_file}"
+    
+    # Run script and capture output
+    cd "${OUTPUT_DIR}"
+    bash "${script_path}" 2>&1 | tee -a "${log_file}"
+    local exit_code=${PIPESTATUS[0]}
+    cd "${SCRIPT_DIR}"
+    
+    if [ ${exit_code} -eq 0 ]; then
+        print_message "${GREEN}" "✓ ${script_name} completed successfully"
+    else
+        print_message "${RED}" "✗ ${script_name} failed with exit code ${exit_code}"
+    fi
+    
+    echo "=== Execution ended at $(date) ===" >> "${log_file}"
+    echo ""
 }
 
-execute_script() {
-    local name="$1"
-    local path="$SCRIPT_DIR/${name}.sh"
+# Main menu
+show_menu() {
+    clear
+    print_message "${BLUE}" "╔════════════════════════════════════════════════════════╗"
+    print_message "${BLUE}" "║   Networking & Cybersecurity Tools - Linux Runner     ║"
+    print_message "${BLUE}" "╚════════════════════════════════════════════════════════╝"
+    echo ""
+    print_message "${GREEN}" "Output Directory: ${OUTPUT_DIR}"
+    print_message "${GREEN}" "Logs Directory: ${LOGS_DIR}"
+    echo ""
+    print_message "${YELLOW}" "Available Tools:"
+    echo "  1) System Information Collection"
+    echo "  2) Detect Suspicious Network Activity"
+    echo "  3) Secure System Configuration"
+    echo "  4) Revert Security Changes"
+    echo "  5) Forensic Data Collection"
+    echo "  6) Web Reconnaissance"
+    echo ""
+    echo "  7) Run All Security Scripts (1-6)"
+    echo "  8) Open Dashboard"
+    echo "  9) Clean Output/Logs Directories"
+    echo "  0) Exit"
+    echo ""
+}
 
-    echo -e "${GREEN}▶ Running: $name${NC}"
-    log_message "INFO" "Started $name"
-
-    if bash "$path" >>"$LOG_FILE" 2>&1; then
-        log_message "SUCCESS" "$name completed"
+# Function to open dashboard
+open_dashboard() {
+    local dashboard_path="${SCRIPT_DIR}/dashboard/index.html"
+    
+    if [ ! -f "${dashboard_path}" ]; then
+        print_message "${RED}" "Error: Dashboard not found at ${dashboard_path}"
+        return 1
+    fi
+    
+    print_message "${BLUE}" "Opening dashboard..."
+    
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "${dashboard_path}" &
+    elif command -v gnome-open &> /dev/null; then
+        gnome-open "${dashboard_path}" &
+    elif command -v firefox &> /dev/null; then
+        firefox "${dashboard_path}" &
+    elif command -v chromium-browser &> /dev/null; then
+        chromium-browser "${dashboard_path}" &
     else
-        log_message "ERROR" "$name failed"
+        print_message "${YELLOW}" "Please open ${dashboard_path} in your browser manually"
     fi
 }
 
-# ─────────────────────────────────────────────────────────────
-# Menu & utilities (requested)
-# ─────────────────────────────────────────────────────────────
-
-show_menu() {
-    echo -e "${PURPLE}════════════════════════════════════════════${NC}"
-    echo -e "${CYAN}                MAIN MENU${NC}"
-    echo -e "${PURPLE}════════════════════════════════════════════${NC}"
-    echo "1) Secure System"
-    echo "2) Detect Suspicious Net"
-    echo "3) Revert Security"
-    echo "4) Forensic Collection"
-    echo "5) System Information"
-    echo "6) Web Reconnaissance"
-    echo "7) Launch Dashboard"
-    echo "8) View Logs"
-    echo "9) Run All Security"
-    echo "10) Help"
-    echo "0) Exit"
+# Function to clean directories
+clean_directories() {
+    print_message "${YELLOW}" "This will delete all files in output and logs directories."
+    read -p "Are you sure? (yes/no): " confirm
+    
+    if [ "${confirm}" == "yes" ]; then
+        rm -rf "${OUTPUT_DIR}"/*
+        rm -rf "${LOGS_DIR}"/*
+        print_message "${GREEN}" "✓ Directories cleaned successfully"
+    else
+        print_message "${YELLOW}" "Operation cancelled"
+    fi
 }
 
-launch_dashboard() {
-    [[ -f "$DASHBOARD_DIR/index.html" ]] || {
-        echo -e "${RED}Dashboard not found${NC}"
-        return
-    }
-    xdg-open "$DASHBOARD_DIR/index.html" >/dev/null 2>&1 &
-    log_message "INFO" "Dashboard launched"
+# Function to run all scripts
+run_all_scripts() {
+    print_message "${BLUE}" "Running all security scripts..."
+    echo ""
+    
+    run_script "system_info.sh"
+    run_script "detect_suspicious_net_linux.sh"
+    run_script "secure_system.sh"
+    run_script "forensic_collect.sh"
+    run_script "web_recon.sh"
+    
+    print_message "${GREEN}" "✓ All scripts completed"
 }
 
-view_logs() {
-    [[ -f "$LOG_FILE" ]] && tail -n 50 "$LOG_FILE" || echo "No logs yet"
-}
-
-run_all_security() {
-    for s in secure_system detect_suspicious_net; do
-        check_script "$s" && execute_script "$s"
-    done
-}
-
-show_help() {
-    echo "CyberSec Toolkit Runner"
-    echo "Artifacts → outputs/"
-    echo "Logs      → logs/"
-}
-
-# ─────────────────────────────────────────────────────────────
 # Main loop
-# ─────────────────────────────────────────────────────────────
-
 main() {
-    show_banner
-    log_message "INFO" "Runner started"
-
+    # Check if running with appropriate permissions
+    if [ "$EUID" -ne 0 ] && [ "${1}" != "--no-root-check" ]; then
+        print_message "${YELLOW}" "Warning: Some scripts may require sudo privileges"
+        print_message "${YELLOW}" "Consider running with: sudo ${0}"
+        echo ""
+    fi
+    
     while true; do
         show_menu
-        read -p "Choice: " c
+        read -p "Enter your choice [0-9]: " choice
         echo ""
-        case "$c" in
-            1) check_script secure_system && execute_script secure_system ;;
-            2) check_script detect_suspicious_net && execute_script detect_suspicious_net ;;
-            3) check_script revert_security && execute_script revert_security ;;
-            4) check_script forensic_collect && execute_script forensic_collect ;;
-            5) check_script system_info && execute_script system_info ;;
-            6) check_script web_recon && execute_script web_recon ;;
-            7) launch_dashboard ;;
-            8) view_logs ;;
-            9) run_all_security ;;
-            10) show_help ;;
-            0) log_message "INFO" "Exiting"; exit 0 ;;
-            *) echo -e "${RED}Invalid choice${NC}" ;;
+        
+        case ${choice} in
+            1)
+                run_script "system_info.sh"
+                ;;
+            2)
+                run_script "detect_suspicious_net_linux.sh"
+                ;;
+            3)
+                run_script "secure_system.sh"
+                ;;
+            4)
+                run_script "revert_security.sh"
+                ;;
+            5)
+                run_script "forensic_collect.sh"
+                ;;
+            6)
+                run_script "web_recon.sh"
+                ;;
+            7)
+                run_all_scripts
+                ;;
+            8)
+                open_dashboard
+                ;;
+            9)
+                clean_directories
+                ;;
+            0)
+                print_message "${GREEN}" "Exiting... Goodbye!"
+                exit 0
+                ;;
+            *)
+                print_message "${RED}" "Invalid option. Please try again."
+                ;;
         esac
+        
+        echo ""
         read -p "Press Enter to continue..."
-        show_banner
     done
 }
 
+# Run main function
 main "$@"

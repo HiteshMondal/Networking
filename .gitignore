@@ -210,6 +210,7 @@ startup_services.txt
 systemd_services.txt
 
 # === Directory exclusions ===
+/outputs/
 /output/
 /logs/
 /reports/
