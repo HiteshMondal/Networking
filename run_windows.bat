@@ -1,273 +1,91 @@
 @echo off
-REM CyberSec Toolkit - Windows Runner
-REM Centralized execution script for all security tools
-
 setlocal enabledelayedexpansion
+REM CyberSec Toolkit - Windows Runner
 
-REM Configuration
-set "SCRIPT_DIR=..\scripts"
-set "LOG_DIR=..\logs"
-set "DASHBOARD_DIR=..\dashboard"
-set "TIMESTAMP=%date:~-4,4%%date:~-7,2%%date:~-10,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
-set "TIMESTAMP=%TIMESTAMP: =0%"
-set "LOG_FILE=%LOG_DIR%\run_%TIMESTAMP%.log"
+REM ─────────────────────────────────────────────
+REM Paths
+REM ─────────────────────────────────────────────
 
-REM Create log directory if it doesn't exist
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+set BASE_DIR=%~dp0
+set SCRIPT_DIR=%BASE_DIR%scripts
+set DASHBOARD_DIR=%BASE_DIR%dashboard
+set LOG_DIR=%BASE_DIR%logs
+set OUTPUT_DIR=%BASE_DIR%outputs
 
-REM Colors (Windows 10+)
-set "RED=[91m"
-set "GREEN=[92m"
-set "YELLOW=[93m"
-set "BLUE=[94m"
-set "PURPLE=[95m"
-set "CYAN=[96m"
-set "NC=[0m"
+set WEB_RECON_DIR=%OUTPUT_DIR%\web_recon
+set NET_DIR=%OUTPUT_DIR%\network
+set FORENSIC_DIR=%OUTPUT_DIR%\forensics
+set SYSTEM_DIR=%OUTPUT_DIR%\system
 
-goto :main
+for %%d in ("%LOG_DIR%" "%WEB_RECON_DIR%" "%NET_DIR%" "%FORENSIC_DIR%" "%SYSTEM_DIR%") do (
+    if not exist %%d mkdir %%d
+)
 
-:show_banner
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set TS=%%i
+set LOG_FILE=%LOG_DIR%\run_%TS%.log
+
+REM Export to child scripts
+set WEB_RECON_DIR=%WEB_RECON_DIR%
+set NET_DIR=%NET_DIR%
+set FORENSIC_DIR=%FORENSIC_DIR%
+set SYSTEM_DIR=%SYSTEM_DIR%
+
+REM ─────────────────────────────────────────────
+REM Banner
+REM ─────────────────────────────────────────────
+
+:banner
 cls
-echo %CYAN%
-echo ================================================================
-echo.
-echo        🛡️  CyberSec Toolkit - Windows Runner 🛡️
-echo.
-echo           Network Security ^& Forensics Suite
-echo.
-echo ================================================================
-echo %NC%
-echo.
-exit /b 0
+echo ===============================================
+echo   CyberSec Toolkit - Windows Runner
+echo ===============================================
 
-:log_message
-REM %1 = level, %2 = message
-set "timestamp=%date% %time%"
-echo [%timestamp%] [%~1] %~2 >> "%LOG_FILE%"
-exit /b 0
+REM ─────────────────────────────────────────────
+REM Menu
+REM ─────────────────────────────────────────────
 
-:check_script
-REM %1 = script name
-set "script_path=%SCRIPT_DIR%\%~1.bat"
+:menu
+echo 1) Secure System
+echo 2) Detect Suspicious Net
+echo 3) Revert Security
+echo 4) Forensic Collection
+echo 5) System Information
+echo 6) Web Reconnaissance
+echo 7) Launch Dashboard
+echo 8) View Logs
+echo 9) Run All Security
+echo 0) Exit
+echo.
 
-if not exist "%script_path%" (
-    echo %RED%Error: Script not found: %script_path%%NC%
-    exit /b 1
+set /p choice=Choice:
+
+if "%choice%"=="1" call :run secure_system
+if "%choice%"=="2" call :run detect_suspicious_net
+if "%choice%"=="3" call :run revert_security
+if "%choice%"=="4" call :run forensic_collect
+if "%choice%"=="5" call :run system_info
+if "%choice%"=="6" call :run web_recon
+if "%choice%"=="7" start "" "%DASHBOARD_DIR%\index.html"
+if "%choice%"=="8" type "%LOG_FILE%"
+if "%choice%"=="9" (
+    call :run secure_system
+    call :run detect_suspicious_net
 )
-exit /b 0
+if "%choice%"=="0" exit /b
 
-:execute_script
-REM %1 = script name
-set "script_name=%~1"
-set "script_path=%SCRIPT_DIR%\%~1.bat"
-
-echo %BLUE%=============================================================%NC%
-echo %GREEN%▶ Executing: %script_name%%NC%
-echo %BLUE%=============================================================%NC%
-echo.
-
-call :log_message "INFO" "Starting execution of %script_name%"
-
-REM Execute the script
-call "%script_path%" 2>&1 | tee -a "%LOG_FILE%"
-
-if !errorlevel! equ 0 (
-    call :log_message "SUCCESS" "%script_name% completed successfully"
-    echo.
-    echo %GREEN%✓ Script completed successfully%NC%
-) else (
-    call :log_message "ERROR" "%script_name% failed with exit code !errorlevel!"
-    echo.
-    echo %RED%✗ Script failed%NC%
-)
-exit /b !errorlevel!
-
-:show_menu
-echo %PURPLE%=============================================================%NC%
-echo %CYAN%                    MAIN MENU%NC%
-echo %PURPLE%=============================================================%NC%
-echo.
-echo %GREEN%Security Tools:%NC%
-echo   1) Secure System           - Harden system security
-echo   2) Detect Suspicious Net   - Monitor network activity
-echo.
-echo %GREEN%Forensic Tools:%NC%
-echo   3) Forensic Collection     - Collect system artifacts
-echo   4) System Information      - Gather system info
-echo.
-echo %GREEN%Reconnaissance:%NC%
-echo   5) Web Reconnaissance      - Web-based recon
-echo.
-echo %GREEN%Dashboard ^& Utilities:%NC%
-echo   6) Launch Dashboard        - Open web dashboard
-echo   7) View Logs              - Display execution logs
-echo   8) Run All Security       - Execute all security tools
-echo   9) Help                   - Show help information
-echo.
-echo %RED%  0) Exit%NC%
-echo.
-echo %PURPLE%=============================================================%NC%
-echo.
-exit /b 0
-
-:launch_dashboard
-echo %CYAN%Launching Web Dashboard...%NC%
-
-if not exist "%DASHBOARD_DIR%\index.html" (
-    echo %RED%Error: Dashboard not found at %DASHBOARD_DIR%\index.html%NC%
-    exit /b 1
-)
-
-REM Open with default browser
-start "" "%DASHBOARD_DIR%\index.html"
-
-call :log_message "INFO" "Dashboard launched"
-echo %GREEN%Dashboard opened in default browser%NC%
-exit /b 0
-
-:view_logs
-echo %CYAN%Recent Log Entries:%NC%
-echo %BLUE%=============================================================%NC%
-
-if exist "%LOG_FILE%" (
-    REM Display last 50 lines of log file
-    powershell -Command "Get-Content '%LOG_FILE%' -Tail 50"
-) else (
-    echo %YELLOW%No logs available for this session%NC%
-)
-
-echo.
-echo %BLUE%=============================================================%NC%
-exit /b 0
-
-:run_all_security
-echo %CYAN%Running all security tools...%NC%
-echo.
-
-set "failed=0"
-
-call :check_script "secure_system"
-if !errorlevel! equ 0 (
-    call :execute_script "secure_system"
-    echo.
-) else (
-    set /a failed+=1
-)
-
-call :check_script "detect_suspicious_net"
-if !errorlevel! equ 0 (
-    call :execute_script "detect_suspicious_net"
-    echo.
-) else (
-    set /a failed+=1
-)
-
-echo %BLUE%=============================================================%NC%
-if !failed! equ 0 (
-    echo %GREEN%All security tools completed successfully%NC%
-) else (
-    echo %YELLOW%!failed! tool(s) failed or were not found%NC%
-)
-exit /b 0
-
-:show_help
-echo %CYAN%=============================================================%NC%
-echo %GREEN%CyberSec Toolkit Help%NC%
-echo %CYAN%=============================================================%NC%
-echo.
-echo This runner script provides a unified interface to execute
-echo all security, forensic, and reconnaissance tools.
-echo.
-echo %GREEN%Usage:%NC%
-echo   run_windows.bat [option]
-echo.
-echo %GREEN%Options:%NC%
-echo   /auto-secure    Run all security tools automatically
-echo   /dashboard      Launch dashboard directly
-echo   /help           Show this help message
-echo.
-echo %GREEN%Features:%NC%
-echo   • Automatic logging of all operations
-echo   • Script validation and permission checking
-echo   • Color-coded output for better readability
-echo   • Web-based dashboard for visual monitoring
-echo.
-echo %GREEN%Log Location:%NC%
-echo   %LOG_FILE%
-echo.
-echo %GREEN%Requirements:%NC%
-echo   • Windows 10 or later (for color support)
-echo   • Administrator privileges (for some tools)
-echo   • PowerShell (for advanced features)
-echo.
-exit /b 0
-
-:main
-call :show_banner
-
-REM Check for command line arguments
-if "%~1"=="/auto-secure" (
-    call :run_all_security
-    goto :eof
-)
-if "%~1"=="/dashboard" (
-    call :launch_dashboard
-    goto :eof
-)
-if "%~1"=="/help" (
-    call :show_help
-    goto :eof
-)
-if not "%~1"=="" (
-    echo %RED%Unknown option: %~1%NC%
-    echo Use /help for usage information
-    goto :eof
-)
-
-call :log_message "INFO" "CyberSec Toolkit Runner started"
-
-REM Interactive menu loop
-:menu_loop
-call :show_menu
-set /p "choice=Enter your choice: "
-echo.
-
-if "%choice%"=="1" (
-    call :check_script "secure_system"
-    if !errorlevel! equ 0 call :execute_script "secure_system"
-) else if "%choice%"=="2" (
-    call :check_script "detect_suspicious_net"
-    if !errorlevel! equ 0 call :execute_script "detect_suspicious_net"
-) else if "%choice%"=="3" (
-    call :check_script "forensic_collect"
-    if !errorlevel! equ 0 call :execute_script "forensic_collect"
-) else if "%choice%"=="4" (
-    call :check_script "system_info"
-    if !errorlevel! equ 0 call :execute_script "system_info"
-) else if "%choice%"=="5" (
-    call :check_script "web_recon"
-    if !errorlevel! equ 0 call :execute_script "web_recon"
-) else if "%choice%"=="6" (
-    call :launch_dashboard
-) else if "%choice%"=="7" (
-    call :view_logs
-) else if "%choice%"=="8" (
-    call :run_all_security
-) else if "%choice%"=="9" (
-    call :show_help
-) else if "%choice%"=="0" (
-    echo %GREEN%Exiting CyberSec Toolkit...%NC%
-    call :log_message "INFO" "CyberSec Toolkit Runner stopped"
-    goto :eof
-) else (
-    echo %RED%Invalid choice. Please try again.%NC%
-)
-
-echo.
 pause
-cls
-call :show_banner
-goto :menu_loop
+goto banner
 
-:eof
-endlocal
+REM ─────────────────────────────────────────────
+REM Run helper
+REM ─────────────────────────────────────────────
+
+:run
+set SCRIPT=%SCRIPT_DIR%\%1.bat
+if not exist "%SCRIPT%" (
+    echo Missing script: %SCRIPT%
+    goto :eof
+)
+echo Running %1...
+call "%SCRIPT%" >> "%LOG_FILE%" 2>&1
+goto :eof
