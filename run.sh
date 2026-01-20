@@ -4,14 +4,15 @@
 # Main control script
 
 # Color definitions
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-BOLD='\033[1m'
+RED='\033[1;31m'      # Bright red, readable everywhere
+GREEN='\033[1;32m'    # Bright green
+YELLOW='\033[1;33m'   # Bright yellow, good highlight
+BLUE='\033[1;34m'     # Bright blue, not too dark
+MAGENTA='\033[1;35m'  # Bright magenta
+CYAN='\033[1;36m'     # Bright cyan
+WHITE='\033[1;37m'    # Bright white, softer than 97
+NC='\033[0m'          # Reset
+BOLD='\033[1m'        # Bold
 
 # Directories
 SCRIPT_DIR="./scripts"
@@ -25,12 +26,13 @@ mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 # Function to display banner
 show_banner() {
     clear
-    echo -e "${CYAN}${BOLD}"
-    echo "╔════════════════════════════════════════════════════════════╗"
-    echo "║   Networking & Cybersecurity Automation Toolkit            ║"
-    echo "║   Professional Security & Network Analysis Suite           ║"
-    echo "╚════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+    echo -e "${CYAN}${BOLD}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}${BOLD}║${NC}                                                                ${CYAN}${BOLD}║${NC}"
+    echo -e "${CYAN}${BOLD}║${NC}  ${RED}🚀${YELLOW} Networking ${GREEN}&${BLUE} Cybersecurity ${MAGENTA}Automation Toolkit${NC}   ${CYAN}${BOLD}║${NC}"
+    echo -e "${CYAN}${BOLD}║${NC}  ${BLUE}🔒${WHITE} Professional ${CYAN}Security ${GREEN}& ${YELLOW}Network Analysis Suite${NC} ${CYAN}${BOLD}║${NC}"
+    echo -e "${CYAN}${BOLD}║${NC}                                                                ${CYAN}${BOLD}║${NC}"
+    echo -e "${CYAN}${BOLD}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo
 }
 
 # Function to detect OS
@@ -299,27 +301,26 @@ show_system_info() {
 show_help() {
     clear
     show_banner
-    echo -e "${BOLD}${CYAN}═══════════════ Help & Documentation ═══════════════${NC}\n"
-    
-    echo -e "${GREEN}About:${NC}"
-    echo "This toolkit provides automated security and network analysis scripts."
+    echo -e "${BOLD}${CYAN}════════════════ Help & Documentation ═════════════════${NC}\n"
+    echo -e "${GREEN}📖 About:${NC}"
+    echo "  This toolkit automates security and network analysis tasks,"
+    echo "  making it easier to detect threats, secure systems, and gather forensic data."
     echo ""
-    echo -e "${GREEN}Features:${NC}"
-    echo "  • Network suspicious activity detection"
-    echo "  • System hardening and security configuration"
+    echo -e "${GREEN}✨ Features:${NC}"
+    echo "  • Detect suspicious network activity"
+    echo "  • System hardening and configuration"
     echo "  • Forensic data collection"
-    echo "  • Web reconnaissance"
+    echo "  • Web reconnaissance & scanning"
     echo "  • Comprehensive logging and reporting"
     echo ""
-    echo -e "${GREEN}Usage:${NC}"
-    echo "  1. Select scripts from the menu to execute"
-    echo "  2. View results in the dashboard"
-    echo "  3. Check logs for detailed information"
+    echo -e "${GREEN}🛠️ Usage:${NC}"
+    echo "  1️⃣  Choose scripts from the main menu"
+    echo "  2️⃣  Execute tasks and monitor output"
+    echo "  3️⃣  Check logs for detailed insights"
     echo ""
-    echo -e "${GREEN}Logs Location:${NC} $LOG_DIR"
-    echo -e "${GREEN}Output Location:${NC} $OUTPUT_DIR"
-    
-    echo -e "\nPress Enter to continue..."
+    echo -e "${GREEN}📂 Logs Location:${NC} $LOG_DIR"
+    echo -e "${GREEN}📂 Output Location:${NC} $OUTPUT_DIR"
+    echo -e "\nPress Enter to return to the menu..."
     read
 }
 
