@@ -1,0 +1,600 @@
+# Popular Networking Tools - Comprehensive Guide
+
+## Network Scanning & Discovery
+
+### Nmap (Network Mapper)
+**Description:** Industry-standard tool for network discovery and security auditing.
+
+**Common Usage:**
+```bash
+# Basic host scan
+nmap 192.168.1.1
+
+# Scan specific ports
+nmap -p 22,80,443 192.168.1.1
+
+# Service version detection
+nmap -sV 192.168.1.0/24
+
+# OS detection
+nmap -O 192.168.1.1
+
+# Aggressive scan
+nmap -A 192.168.1.1
+```
+
+**Documentation:** https://nmap.org/docs.html  
+**Installation:** Available on Linux, Windows, macOS via package managers or official website  
+**Use Cases:** Port scanning, service discovery, network inventory, security assessments
+
+---
+
+### Wireshark
+**Description:** World's most popular network protocol analyzer for packet capture and analysis.
+
+**Common Usage:**
+- Capture live traffic from network interfaces
+- Apply display filters: `tcp.port == 80`, `ip.addr == 192.168.1.1`
+- Follow TCP streams to reconstruct conversations
+- Export packet data for further analysis
+
+**Key Features:**
+- Deep inspection of hundreds of protocols
+- Live capture and offline analysis
+- Rich VoIP analysis
+- Cross-platform support
+
+**Documentation:** https://www.wireshark.org/docs/  
+**Installation:** Download from wireshark.org for all major platforms  
+**Use Cases:** Network troubleshooting, protocol analysis, security analysis, educational purposes
+
+---
+
+### tcpdump
+**Description:** Command-line packet analyzer, the CLI alternative to Wireshark.
+
+**Common Usage:**
+```bash
+# Capture packets on interface
+tcpdump -i eth0
+
+# Capture specific host traffic
+tcpdump host 192.168.1.100
+
+# Capture and save to file
+tcpdump -w capture.pcap
+
+# Read from saved file
+tcpdump -r capture.pcap
+
+# Capture HTTP traffic
+tcpdump -i eth0 'tcp port 80'
+```
+
+**Documentation:** https://www.tcpdump.org/manpages/tcpdump.1.html  
+**Installation:** Pre-installed on most Unix/Linux systems  
+**Use Cases:** Quick packet captures, scripting, remote server troubleshooting
+
+---
+
+## Network Diagnostics
+
+### ping
+**Description:** Basic network connectivity testing tool using ICMP echo requests.
+
+**Common Usage:**
+```bash
+# Basic ping
+ping google.com
+
+# Send specific number of packets
+ping -c 4 192.168.1.1
+
+# Set packet interval
+ping -i 2 192.168.1.1
+
+# Flood ping (requires root)
+ping -f 192.168.1.1
+```
+
+**Documentation:** Part of iputils package, man pages available  
+**Use Cases:** Connectivity testing, latency measurement, network availability checks
+
+---
+
+### traceroute / tracert
+**Description:** Displays the route packets take to reach a destination.
+
+**Common Usage:**
+```bash
+# Linux/Mac
+traceroute google.com
+
+# Windows
+tracert google.com
+
+# Use ICMP instead of UDP
+traceroute -I google.com
+
+# Set max hops
+traceroute -m 20 google.com
+```
+
+**Documentation:** Built-in system tool, check man pages  
+**Use Cases:** Path discovery, identifying network bottlenecks, routing issues
+
+---
+
+### netstat
+**Description:** Network statistics tool showing network connections, routing tables, and interface statistics.
+
+**Common Usage:**
+```bash
+# Show all connections
+netstat -a
+
+# Show listening ports
+netstat -l
+
+# Show with PIDs
+netstat -p
+
+# Show routing table
+netstat -r
+
+# Continuous monitoring
+netstat -c
+```
+
+**Documentation:** Part of net-tools package  
+**Note:** Being replaced by `ss` command on modern Linux systems  
+**Use Cases:** Connection monitoring, port usage, routing table inspection
+
+---
+
+### ss (Socket Statistics)
+**Description:** Modern replacement for netstat with better performance.
+
+**Common Usage:**
+```bash
+# Show all sockets
+ss -a
+
+# Show TCP connections
+ss -t
+
+# Show listening sockets
+ss -l
+
+# Show process using socket
+ss -p
+
+# Show summary statistics
+ss -s
+```
+
+**Documentation:** https://man7.org/linux/man-pages/man8/ss.8.html  
+**Use Cases:** Socket inspection, network diagnostics, performance monitoring
+
+---
+
+## Network Configuration
+
+### ifconfig / ip
+**Description:** Network interface configuration tools.
+
+**Common Usage:**
+```bash
+# Show all interfaces (old)
+ifconfig -a
+
+# Modern alternative
+ip addr show
+
+# Bring interface up
+ip link set eth0 up
+
+# Add IP address
+ip addr add 192.168.1.100/24 dev eth0
+
+# Show routing table
+ip route show
+```
+
+**Documentation:** 
+- ifconfig: Legacy, check man pages
+- ip: https://man7.org/linux/man-pages/man8/ip.8.html
+
+**Use Cases:** Interface configuration, IP assignment, network troubleshooting
+
+---
+
+### netcat (nc)
+**Description:** Networking Swiss Army knife for reading/writing network connections.
+
+**Common Usage:**
+```bash
+# Listen on port
+nc -l 1234
+
+# Connect to host
+nc example.com 80
+
+# Port scanning
+nc -zv 192.168.1.1 20-100
+
+# File transfer
+nc -l 1234 > received.txt
+nc 192.168.1.100 1234 < file.txt
+
+# Banner grabbing
+echo "" | nc example.com 80
+```
+
+**Documentation:** https://nc110.sourceforge.io/  
+**Use Cases:** Port testing, file transfers, debugging, backdoor (security testing only)
+
+---
+
+## DNS Tools
+
+### dig (Domain Information Groper)
+**Description:** Flexible DNS lookup tool for querying DNS servers.
+
+**Common Usage:**
+```bash
+# Basic lookup
+dig example.com
+
+# Query specific record type
+dig example.com MX
+dig example.com AAAA
+
+# Query specific nameserver
+dig @8.8.8.8 example.com
+
+# Reverse DNS lookup
+dig -x 8.8.8.8
+
+# Trace DNS delegation path
+dig +trace example.com
+```
+
+**Documentation:** https://linux.die.net/man/1/dig  
+**Use Cases:** DNS troubleshooting, zone transfers, nameserver testing
+
+---
+
+### nslookup
+**Description:** Simple DNS query tool, available on all platforms.
+
+**Common Usage:**
+```bash
+# Basic lookup
+nslookup example.com
+
+# Query specific server
+nslookup example.com 8.8.8.8
+
+# Interactive mode
+nslookup
+> set type=MX
+> example.com
+```
+
+**Documentation:** Built-in tool, check system documentation  
+**Use Cases:** Quick DNS queries, reverse lookups, basic troubleshooting
+
+---
+
+### host
+**Description:** Simple DNS lookup utility with clean output.
+
+**Common Usage:**
+```bash
+# Basic lookup
+host example.com
+
+# Reverse lookup
+host 93.184.216.34
+
+# All record types
+host -a example.com
+
+# Specific nameserver
+host example.com 8.8.8.8
+```
+
+**Documentation:** https://linux.die.net/man/1/host  
+**Use Cases:** Quick DNS queries, scripting, simple lookups
+
+---
+
+## Performance & Monitoring
+
+### iperf / iperf3
+**Description:** Network bandwidth measurement tool.
+
+**Common Usage:**
+```bash
+# Server mode
+iperf3 -s
+
+# Client mode
+iperf3 -c server_ip
+
+# UDP test
+iperf3 -c server_ip -u
+
+# Reverse mode
+iperf3 -c server_ip -R
+
+# Set duration
+iperf3 -c server_ip -t 30
+```
+
+**Documentation:** https://iperf.fr/iperf-doc.php  
+**Installation:** Available via package managers  
+**Use Cases:** Bandwidth testing, network performance measurement, troubleshooting
+
+---
+
+### mtr (My TraceRoute)
+**Description:** Combines functionality of ping and traceroute with continuous monitoring.
+
+**Common Usage:**
+```bash
+# Basic usage
+mtr google.com
+
+# Report mode (10 cycles)
+mtr --report google.com
+
+# Use TCP instead of ICMP
+mtr --tcp google.com
+
+# Set packet count
+mtr -c 100 google.com
+```
+
+**Documentation:** https://www.bitwizard.nl/mtr/  
+**Use Cases:** Network path analysis, latency monitoring, packet loss detection
+
+---
+
+### speedtest-cli
+**Description:** Command-line interface for testing internet bandwidth using speedtest.net.
+
+**Common Usage:**
+```bash
+# Run test
+speedtest-cli
+
+# Show available servers
+speedtest-cli --list
+
+# Test with specific server
+speedtest-cli --server 12345
+
+# Share results
+speedtest-cli --share
+```
+
+**Documentation:** https://github.com/sivel/speedtest-cli  
+**Installation:** `pip install speedtest-cli`  
+**Use Cases:** Internet speed testing, ISP verification, bandwidth monitoring
+
+---
+
+## Security & Analysis
+
+### ngrep (Network grep)
+**Description:** Pattern matching for network traffic.
+
+**Common Usage:**
+```bash
+# Search for pattern
+ngrep -q 'HTTP'
+
+# Specific interface and host
+ngrep -d eth0 -q 'password' host 192.168.1.1
+
+# Case-insensitive
+ngrep -qi 'user'
+```
+
+**Documentation:** https://github.com/jpr5/ngrep  
+**Use Cases:** Protocol debugging, security analysis, pattern detection
+
+---
+
+### arp
+**Description:** Display and modify ARP cache.
+
+**Common Usage:**
+```bash
+# Show ARP table
+arp -a
+
+# Add static entry
+arp -s 192.168.1.100 00:11:22:33:44:55
+
+# Delete entry
+arp -d 192.168.1.100
+```
+
+**Use Cases:** ARP troubleshooting, detecting ARP spoofing, MAC address discovery
+
+---
+
+### curl
+**Description:** Command-line tool for transferring data with URLs.
+
+**Common Usage:**
+```bash
+# GET request
+curl https://api.example.com
+
+# POST with data
+curl -X POST -d "param=value" https://api.example.com
+
+# Save to file
+curl -o output.html https://example.com
+
+# Include headers
+curl -i https://example.com
+
+# Follow redirects
+curl -L https://example.com
+
+# Authentication
+curl -u user:password https://api.example.com
+```
+
+**Documentation:** https://curl.se/docs/  
+**Use Cases:** API testing, file downloads, web debugging, automation
+
+---
+
+### wget
+**Description:** Non-interactive network downloader.
+
+**Common Usage:**
+```bash
+# Download file
+wget https://example.com/file.zip
+
+# Resume download
+wget -c https://example.com/file.zip
+
+# Download entire website
+wget -r https://example.com
+
+# Background download
+wget -b https://example.com/largefile.iso
+
+# Limit speed
+wget --limit-rate=1m https://example.com/file.zip
+```
+
+**Documentation:** https://www.gnu.org/software/wget/manual/  
+**Use Cases:** Bulk downloads, mirroring websites, scripted downloads
+
+---
+
+## Modern Tools
+
+### htop / iftop
+**Description:** Interactive process viewer (htop) and network bandwidth monitor (iftop).
+
+**htop Usage:**
+- Interactive process monitoring
+- CPU, memory, swap usage
+- Process filtering and sorting
+
+**iftop Usage:**
+```bash
+# Monitor interface
+iftop -i eth0
+
+# Show ports
+iftop -P
+```
+
+**Documentation:** 
+- htop: https://htop.dev/
+- iftop: http://www.ex-parrot.com/pdw/iftop/
+
+---
+
+### nload
+**Description:** Console-based network traffic monitor.
+
+**Common Usage:**
+```bash
+# Monitor default interface
+nload
+
+# Monitor specific interface
+nload eth0
+
+# Monitor multiple interfaces
+nload eth0 eth1
+```
+
+**Use Cases:** Real-time bandwidth monitoring, network load visualization
+
+---
+
+## Cloud & Container Tools
+
+### kubectl (Kubernetes)
+**Description:** Command-line tool for Kubernetes cluster management.
+
+**Common Usage:**
+```bash
+# Get cluster info
+kubectl cluster-info
+
+# List pods
+kubectl get pods
+
+# View logs
+kubectl logs pod-name
+
+# Execute command in pod
+kubectl exec -it pod-name -- /bin/bash
+```
+
+**Documentation:** https://kubernetes.io/docs/reference/kubectl/  
+**Use Cases:** Container orchestration, microservices networking, cluster management
+
+---
+
+## Additional Resources
+
+### Learning Platforms:
+- **NetworkChuck:** YouTube channel for networking tutorials
+- **Cisco Networking Academy:** Free courses on networking fundamentals
+- **Coursera/Udemy:** Various networking courses
+
+### Online Tools:
+- **DNSdumpster.com:** DNS reconnaissance
+- **Shodan.io:** Internet-connected device search engine
+- **IPinfo.io:** IP address information
+
+### Books:
+- "TCP/IP Illustrated" by W. Richard Stevens
+- "Network Warrior" by Gary A. Donahue
+- "Wireshark Network Analysis" by Laura Chappell
+
+### Communities:
+- r/networking (Reddit)
+- Network Engineering Stack Exchange
+- Cisco Learning Network
+
+---
+
+## Important Notes
+
+**Legal & Ethical Considerations:**
+- Always obtain proper authorization before scanning networks
+- Respect privacy and data protection laws
+- Use tools responsibly and only on networks you own or have permission to test
+- Many scanning tools can be detected by IDS/IPS systems
+
+**Best Practices:**
+- Start with non-intrusive tools (ping, traceroute)
+- Document your findings
+- Keep tools updated
+- Understand what each tool does before using it
+- Practice in isolated lab environments first
+
+**Platform Availability:**
+- Most tools are available on Linux/Unix systems
+- Windows has native alternatives or downloadable versions
+- macOS supports most Unix-based tools natively
+
+---
+
+*Last Updated: January 2025*
