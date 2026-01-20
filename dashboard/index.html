@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cybersecurity Automation Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🔒 Cybersecurity Automation Dashboard</h1>
+                <p class="subtitle">Real-time Security & Network Analysis</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="refreshDashboard()">
+                    <span class="icon">🔄</span> Refresh
+                </button>
+                <button class="btn btn-secondary" onclick="exportReport()">
+                    <span class="icon">📥</span> Export Report
+                </button>
+            </div>
+        </header>
+
+        <!-- Status Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                    <div class="stat-label">Total Scans</div>
+                    <div class="stat-value" id="totalScans">0</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-content">
+                    <div class="stat-label">Successful</div>
+                    <div class="stat-value success" id="successfulScans">0</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-content">
+                    <div class="stat-label">Warnings</div>
+                    <div class="stat-value warning" id="warningScans">0</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">❌</div>
+                <div class="stat-content">
+                    <div class="stat-label">Failed</div>
+                    <div class="stat-value error" id="failedScans">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="content-grid">
+            <!-- Recent Activity -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📝 Recent Activity</h2>
+                    <span class="badge" id="activityBadge">Live</span>
+                </div>
+                <div class="card-body">
+                    <div id="recentActivity" class="activity-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <p>No recent activity. Run a script to get started.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Log Files -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📂 Log Files</h2>
+                    <span class="badge badge-info" id="logCount">0 files</span>
+                </div>
+                <div class="card-body">
+                    <div id="logFiles" class="log-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">📄</div>
+                            <p>No log files available.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full Width Cards -->
+        <div class="card">
+            <div class="card-header">
+                <h2>📊 Script Execution History</h2>
+                <select class="filter-select" id="scriptFilter" onchange="filterHistory()">
+                    <option value="all">All Scripts</option>
+                    <option value="network">Network Analysis</option>
+                    <option value="security">Security</option>
+                    <option value="forensic">Forensics</option>
+                    <option value="recon">Reconnaissance</option>
+                </select>
+            </div>
+            <div class="card-body">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Script Name</th>
+                                <th>Category</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTable">
+                            <tr>
+                                <td colspan="6" class="empty-row">No execution history available</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Output Files -->
+        <div class="card">
+            <div class="card-header">
+                <h2>💾 Output Files</h2>
+                <span class="badge badge-info" id="outputCount">0 files</span>
+            </div>
+            <div class="card-body">
+                <div id="outputFiles" class="file-grid">
+                    <div class="empty-state">
+                        <div class="empty-icon">📦</div>
+                        <p>No output files generated yet.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Last Updated: <span id="lastUpdate">Never</span></p>
+            <p>Networking & Cybersecurity Automation Toolkit v1.0</p>
+        </footer>
+    </div>
+
+    <!-- Modal for Log Viewer -->
+    <div id="logModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Log Viewer</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre id="logContent">Loading...</pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                <button class="btn btn-primary" onclick="downloadCurrentLog()">Download</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
