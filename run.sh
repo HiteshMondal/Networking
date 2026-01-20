@@ -19,6 +19,7 @@ SCRIPT_DIR="./scripts"
 LOG_DIR="./logs"
 OUTPUT_DIR="./output"
 DASHBOARD_DIR="./dashboard"
+TOOLS="./tools"
 
 # Create necessary directories
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
@@ -57,6 +58,7 @@ show_main_menu() {
     echo -e "${GREEN}4.${NC} Clean Logs & Output"
     echo -e "${GREEN}5.${NC} System Information"
     echo -e "${GREEN}6.${NC} Help & Documentation"
+    echo -e "${GREEN}7.${NC} See networking tools"
     echo -e "${RED}0.${NC} Exit"
     echo -e "\n${BLUE}═════════════════════════════════════════════════${NC}"
 }
@@ -324,6 +326,41 @@ show_help() {
     read
 }
 
+# Function to check tools
+tools() {
+    clear
+    echo -e "${BLUE}══════════════════════════════════════${NC}"
+    echo -e "${GREEN}        🛠  Available Tools${NC}"
+    echo -e "${BLUE}══════════════════════════════════════${NC}"
+    echo
+    echo -e "${GREEN} 1.${NC} Run Network Tools"
+    echo -e "${GREEN} 2.${NC} Back to Main Menu"
+    echo
+    echo -e "${BLUE}──────────────────────────────────────${NC}"
+    read -p "$(echo -e ${YELLOW}'👉 Choose an option: '${NC})" choice
+    echo
+    case $choice in
+        1)
+            if [ -f "$TOOLS/network_tools.sh" ]; then
+                echo -e "${GREEN}[+] Running network tools...${NC}"
+                chmod +x "$TOOLS/network_tools.sh"
+                bash "$TOOLS/network_tools.sh"
+            else
+                echo -e "${RED}[!] network_tools.sh not found${NC}"
+            fi
+            ;;
+        2)
+            echo -e "${YELLOW}[*] Returning to main menu...${NC}"
+            sleep 1
+            ;;
+        *)
+            echo -e "${RED}[!] Invalid option. Please try again.${NC}"
+            sleep 1
+            ;;
+    esac
+}
+
+
 # Main loop
 main() {
     while true; do
@@ -351,6 +388,7 @@ main() {
             4) clean_data ;;
             5) show_system_info ;;
             6) show_help ;;
+            7) tools ;;
             0) 
                 echo -e "\n${GREEN}Thank you for using the Networking & Cybersecurity Toolkit!${NC}"
                 exit 0

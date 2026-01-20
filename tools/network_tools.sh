@@ -202,21 +202,27 @@ run_iftop() {
 # Main menu
 show_menu() {
     clear
-    echo "======================================"
-    echo "  Network Tools Analyzer & Monitor"
-    echo "======================================"
-    echo "1.  Network Interfaces (ip/ifconfig)"
-    echo "2.  Active Connections (netstat)"
-    echo "3.  Socket Statistics (ss)"
-    echo "4.  Ping Test"
-    echo "5.  Traceroute"
-    echo "6.  Port Scan (nmap)"
-    echo "7.  Packet Capture (tcpdump)"
-    echo "8.  Bandwidth Monitor (iftop)"
-    echo "9.  Install/Check All Tools"
-    echo "0.  Exit"
-    echo "======================================"
+    echo -e "${BLUE}══════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}   🚀 Network Tools Analyzer & Monitor${NC}"
+    echo -e "${BLUE}══════════════════════════════════════════════${NC}"
+    echo
+    echo -e "${YELLOW}📘 Tip:${NC} Check the guide in the tools folder for documentation"
+    echo
+    echo -e "${BLUE}────────────────── MENU ──────────────────${NC}"
+    echo -e "${GREEN} 1.${NC} Network Interfaces        ${YELLOW}(ip / ifconfig)${NC}"
+    echo -e "${GREEN} 2.${NC} Active Connections        ${YELLOW}(netstat)${NC}"
+    echo -e "${GREEN} 3.${NC} Socket Statistics         ${YELLOW}(ss)${NC}"
+    echo -e "${GREEN} 4.${NC} Ping Test"
+    echo -e "${GREEN} 5.${NC} Traceroute"
+    echo -e "${GREEN} 6.${NC} Port Scan                ${YELLOW}(nmap)${NC}"
+    echo -e "${GREEN} 7.${NC} Packet Capture           ${YELLOW}(tcpdump)${NC}"
+    echo -e "${GREEN} 8.${NC} Bandwidth Monitor         ${YELLOW}(iftop)${NC}"
+    echo -e "${GREEN} 9.${NC} Install / Check All Tools"
+    echo
+    echo -e "${RED} 0.${NC} Exit"
+    echo -e "${BLUE}══════════════════════════════════════════════${NC}"
 }
+
 
 # Main execution
 main() {
