@@ -1,5 +1,9 @@
 #!/bin/bash
 
+set -o errexit
+set -o pipefail
+set -o nounset
+
 # Networking & Cybersecurity Automation Toolkit
 # Main control script
 
@@ -15,11 +19,12 @@ NC='\033[0m'          # Reset
 BOLD='\033[1m'        # Bold
 
 # Directories
-SCRIPT_DIR="./scripts"
-LOG_DIR="./logs"
-OUTPUT_DIR="./output"
-DASHBOARD_DIR="./dashboard"
-TOOLS="./tools"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$PROJECT_ROOT/scripts"
+LOG_DIR="$PROJECT_ROOT/logs"
+OUTPUT_DIR="$PROJECT_ROOT/output"
+DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
+TOOLS="$PROJECT_ROOT/tools"
 
 # Create necessary directories
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
@@ -122,31 +127,34 @@ execute_script() {
     local script_name=$(basename "$script_path")
     local timestamp=$(date +"%Y%m%d_%H%M%S")
     local log_file="$LOG_DIR/${script_name}_${timestamp}.log"
-    
     echo -e "\n${YELLOW}Executing: ${script_name}${NC}"
     echo -e "${BLUE}Log file: ${log_file}${NC}\n"
-    
-    # Make script executable
+
+    # Ensure output directory exists
+    mkdir -p "$OUTPUT_DIR"
+
+    # Make script executable (Linux/macOS)
     chmod +x "$script_path" 2>/dev/null
-    
-    # Execute and log
     echo "=== Execution started at $(date) ===" > "$log_file"
-    
     if [[ "$script_path" == *.bat ]]; then
-        cmd.exe /c "$script_path" 2>&1 | tee -a "$log_file"
+        (
+            cd "$OUTPUT_DIR" || exit 1
+            cmd.exe /c "$script_path"
+        ) 2>&1 | tee -a "$log_file"
+        exit_code=${PIPESTATUS[0]}
     else
-        "$script_path" 2>&1 | tee -a "$log_file"
+        (
+            cd "$OUTPUT_DIR" || exit 1
+            "$script_path"
+        ) 2>&1 | tee -a "$log_file"
+        exit_code=${PIPESTATUS[0]}
     fi
-    
-    local exit_code=$?
     echo "=== Execution completed at $(date) with exit code $exit_code ===" >> "$log_file"
-    
-    if [ $exit_code -eq 0 ]; then
+    if [ "$exit_code" -eq 0 ]; then
         echo -e "\n${GREEN}✓ Script completed successfully${NC}"
     else
         echo -e "\n${RED}✗ Script completed with errors (exit code: $exit_code)${NC}"
     fi
-    
     echo -e "\nPress Enter to continue..."
     read
 }
@@ -203,35 +211,42 @@ start_dashboard() {
     clear
     show_banner
     echo -e "${YELLOW}Starting Dashboard...${NC}\n"
-    
-    # Check if Python is installed
+
+    cd "$DASHBOARD_DIR" || return
+
+    # Detect Python
     if command -v python3 &> /dev/null; then
-        cd "$DASHBOARD_DIR"
-        echo -e "${GREEN}Dashboard server starting at http://localhost:8000${NC}"
-        echo -e "${CYAN}Press Ctrl+C to stop the server${NC}\n"
-        python3 server.py
+        PYTHON_CMD="python3"
     elif command -v python &> /dev/null; then
-        cd "$DASHBOARD_DIR"
-        echo -e "${GREEN}Dashboard server starting at http://localhost:8000${NC}"
-        echo -e "${CYAN}Press Ctrl+C to stop the server${NC}\n"
-        python server.py
+        PYTHON_CMD="python"
     else
-        echo -e "${RED}Python is not installed. Please install Python to use the dashboard.${NC}"
-        echo -e "Opening static dashboard in browser..."
-        
-        # Try to open in default browser
-        if command -v xdg-open &> /dev/null; then
-            xdg-open "$DASHBOARD_DIR/index.html"
-        elif command -v open &> /dev/null; then
-            open "$DASHBOARD_DIR/index.html"
-        elif command -v start &> /dev/null; then
-            start "$DASHBOARD_DIR/index.html"
-        else
-            echo -e "${YELLOW}Please manually open: $DASHBOARD_DIR/index.html${NC}"
-        fi
+        echo -e "${RED}Python is not installed. Opening static dashboard...${NC}"
+        xdg-open "index.html" 2>/dev/null || open "index.html"
+        return
     fi
-    
-    echo -e "\nPress Enter to continue..."
+
+    # Check if server already running (portable)
+    if ss -ltn 2>/dev/null | grep -q ':8000' || netstat -an 2>/dev/null | grep -q ':8000'; then
+        echo -e "${GREEN}✓ Dashboard already running at http://localhost:8000${NC}"
+    else
+        echo -e "${GREEN}✓ Starting dashboard server at http://localhost:8000${NC}"
+        nohup $PYTHON_CMD server.py > /dev/null 2>&1 &
+        sleep 1
+    fi
+
+    # Open dashboard via SERVER (important)
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "http://localhost:8000"
+    elif command -v open &> /dev/null; then
+        open "http://localhost:8000"
+    elif command -v start &> /dev/null; then
+        start "http://localhost:8000"
+    else
+        echo -e "${YELLOW}Please open manually: http://localhost:8000${NC}"
+    fi
+
+    echo -e "\n${CYAN}Dashboard running in background${NC}"
+    echo -e "${YELLOW}Press Enter to return to menu...${NC}"
     read
 }
 
@@ -283,18 +298,15 @@ show_system_info() {
     clear
     show_banner
     echo -e "${BOLD}${CYAN}═══════════════ System Information ═══════════════${NC}\n"
-    
     echo -e "${GREEN}Operating System:${NC} $(detect_os)"
     echo -e "${GREEN}Hostname:${NC} $(hostname)"
     echo -e "${GREEN}User:${NC} $(whoami)"
     echo -e "${GREEN}Date:${NC} $(date)"
     echo -e "${GREEN}Uptime:${NC} $(uptime -p 2>/dev/null || uptime)"
-    
     echo -e "\n${GREEN}Toolkit Statistics:${NC}"
-    echo -e "  Log files: $(ls -1 $LOG_DIR 2>/dev/null | wc -l)"
-    echo -e "  Output files: $(ls -1 $OUTPUT_DIR 2>/dev/null | wc -l)"
-    echo -e "  Available scripts: $(ls -1 $SCRIPT_DIR 2>/dev/null | wc -l)"
-    
+    echo -e "  Log files: $(find "$LOG_DIR" -type f 2>/dev/null | wc -l)"
+    echo -e "  Output files: $(find "$OUTPUT_DIR" -type f 2>/dev/null | wc -l)"
+    echo -e "  Available scripts: $(find "$SCRIPT_DIR" -type f 2>/dev/null | wc -l)"
     echo -e "\nPress Enter to continue..."
     read
 }
@@ -359,7 +371,6 @@ tools() {
             ;;
     esac
 }
-
 
 # Main loop
 main() {
