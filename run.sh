@@ -9,23 +9,21 @@ set -o pipefail
 # Establish project root
 export PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Source configuration and libraries
+# Source files
 source "$PROJECT_ROOT/config/settings.conf"
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
-
-# Source modules
 source "$PROJECT_ROOT/scripts/run_script.sh"
 source "$PROJECT_ROOT/tools/tools.sh"
 source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
 source "$PROJECT_ROOT/implementation_integration/Fundamentals/setup.sh"
 
-# Directories (defined in functions.sh but redeclared for clarity)
+# Directories
 SCRIPT_DIR="$PROJECT_ROOT/scripts"
 LOG_DIR="$PROJECT_ROOT/logs"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
-TOOLS_DIR="$PROJECT_ROOT/tools"
+TOOLS="$PROJECT_ROOT/tools"
 
 # Create necessary directories
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
@@ -286,6 +284,7 @@ main() {
         esac
     done
 }
+
 
 # Run main function
 main

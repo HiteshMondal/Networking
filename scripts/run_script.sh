@@ -74,66 +74,36 @@ execute_script() {
     local script_name=$(basename "$script_path")
     local timestamp=$(date +"%Y%m%d_%H%M%S")
     local log_file="$LOG_DIR/${script_name}_${timestamp}.log"
-    
-    # Validate script exists
-    if [ ! -f "$script_path" ]; then
-        log_error "Script not found: $script_path"
-        echo -e "\nPress Enter to continue..."
-        read
-        return 1
-    fi
-    
     echo -e "\n${YELLOW}Executing: ${script_name}${NC}"
     echo -e "${BLUE}Log file: ${log_file}${NC}\n"
 
-    # Ensure directories exist
-    mkdir -p "$OUTPUT_DIR" "$LOG_DIR"
+    # Ensure output directory exists
+    mkdir -p "$OUTPUT_DIR"
 
     # Make script executable (Linux/macOS)
     chmod +x "$script_path" 2>/dev/null
-    
-    # Log execution start
     echo "=== Execution started at $(date) ===" > "$log_file"
-    echo "Script: $script_path" >> "$log_file"
-    echo "Working directory: $OUTPUT_DIR" >> "$log_file"
-    echo "===" >> "$log_file"
-    
-    # Execute based on file type
     if [[ "$script_path" == *.bat ]]; then
-        # Windows batch file
         (
-            safe_cd "$OUTPUT_DIR" || exit 1
+            cd "$OUTPUT_DIR" || exit 1
             cmd.exe /c "$script_path"
         ) 2>&1 | tee -a "$log_file"
         exit_code=${PIPESTATUS[0]}
     else
-        # Unix shell script - run from script's own directory
-        local script_dir=$(dirname "$script_path")
         (
-            safe_cd "$script_dir" || exit 1
-            export OUTPUT_DIR  # Make available to child script
-            export LOG_DIR
-            "./$script_name"
+            cd "$OUTPUT_DIR" || exit 1
+            "$script_path"
         ) 2>&1 | tee -a "$log_file"
         exit_code=${PIPESTATUS[0]}
     fi
-    
-    # Log completion
     echo "=== Execution completed at $(date) with exit code $exit_code ===" >> "$log_file"
-    
-    # Show result
     if [ "$exit_code" -eq 0 ]; then
-        log_success "Script completed successfully"
+        echo -e "\n${GREEN}✓ Script completed successfully${NC}"
     else
-        log_error "Script completed with errors (exit code: $exit_code)"
+        echo -e "\n${RED}✗ Script completed with errors (exit code: $exit_code)${NC}"
     fi
-    
-    # Rotate logs if needed
-    rotate_logs
-    
     echo -e "\nPress Enter to continue..."
     read
-    return $exit_code
 }
 
 # Log rotation
@@ -152,24 +122,45 @@ rotate_logs() {
 
 # Main script runner function
 run_script() {
-    local choice=$1
-    local os=$(detect_os)
-    
-    if [ "$choice" == "0" ]; then
-        return 0
+    local choice="$1"
+    local os
+    os=$(detect_os)
+
+    local script=""
+    case $choice in
+        1) execute_script "$SCRIPT_DIR/detect_suspicious_net_linux.sh" ;;
+        2) execute_script "$SCRIPT_DIR/secure_system.sh" ;;
+        3) execute_script "$SCRIPT_DIR/revert_security.sh" ;;
+        4) execute_script "$SCRIPT_DIR/system_info.sh" ;;
+        5) execute_script "$SCRIPT_DIR/forensic_collect.sh" ;;
+        6) execute_script "$SCRIPT_DIR/web_recon.sh" ;;
+        0) return ;;
+        *) echo -e "${RED}Invalid choice${NC}" ;;
+    esac
+
+    if [[ ! -x "$script" ]]; then
+        log_error "Script not executable: $script"
+        return
     fi
-    
-    local script_path=$(get_script_for_choice "$choice" "$os")
-    
-    if [ -z "$script_path" ]; then
-        log_error "Invalid choice or script not available for your OS"
-        sleep 2
-        return 1
+
+    local ts
+    ts=$(date +%Y%m%d_%H%M%S)
+    local logfile="$LOG_DIR/$(basename "$script")_$ts.log"
+
+    log_info "Executing: $(basename "$script")"
+    log_info "Log file: $logfile"
+
+    # EXECUTE — NOT SOURCE
+    (
+        export OUTPUT_DIR
+        export PROJECT_ROOT
+        bash "$script"
+    ) 2>&1 | tee -a "$logfile"
+
+    local rc=${PIPESTATUS[0]}
+    if [[ $rc -eq 0 ]]; then
+        log_success "Script completed successfully"
+    else
+        log_error "Script failed with exit code $rc"
     fi
-    
-    if [ "$script_path" == "EXIT" ]; then
-        return 0
-    fi
-    
-    execute_script "$script_path"
 }

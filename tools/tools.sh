@@ -30,21 +30,17 @@ tools() {
         
         case $choice in
             1)
-                if [ -f "$SCRIPT_DIR/network_tools.sh" ]; then
+                if [ -f "$PROJECT_ROOT/tools/network_tools.sh" ]; then
                     log_info "Launching network tools..."
-                    bash "$SCRIPT_DIR/network_tools.sh"
+                    bash "$PROJECT_ROOT/tools/network_tools.sh"
                 else
-                    log_error "network_tools.sh not found at $SCRIPT_DIR"
+                    log_error "network_tools.sh not found at $PROJECT_ROOT/tools"
                     sleep 2
                 fi
                 ;;
             2)
-                if [ -d "$SCRIPT_DIR/guide" ]; then
-                    less "$SCRIPT_DIR/guide/README.md" 2>/dev/null || \
-                        log_warning "No documentation found in guide/"
-                else
-                    log_warning "Guide directory not found"
-                fi
+                cat $PROJECT_ROOT/tools/guide
+                echo ""
                 echo -e "\nPress Enter to continue..."
                 read
                 ;;
