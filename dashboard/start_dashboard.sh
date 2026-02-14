@@ -3,9 +3,17 @@
 # /dashboard/start_dashboard.sh
 # Dashboard launcher with PID management
 
-# Get project root
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# Get project root - FIXED to handle being sourced
+if [ -n "${BASH_SOURCE[0]}" ]; then
+    DASHBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    # Fallback if sourced
+    DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
+fi
+PROJECT_ROOT="$(dirname "$DASHBOARD_DIR")"
+SCRIPT_DIR="$PROJECT_ROOT/scripts"
+LOG_DIR="$PROJECT_ROOT/logs"
+OUTPUT_DIR="$PROJECT_ROOT/output"
 
 # Source dependencies
 source "$PROJECT_ROOT/lib/colors.sh"
@@ -50,9 +58,18 @@ start_dashboard() {
     show_banner
     echo -e "${YELLOW}Starting Dashboard...${NC}\n"
     
-    # Change to dashboard directory
-    if ! safe_cd "$SCRIPT_DIR"; then
-        log_error "Cannot access dashboard directory"
+    # Dashboard directory
+    if ! safe_cd "$DASHBOARD_DIR"; then
+        log_error "Cannot access dashboard directory: $DASHBOARD_DIR"
+        echo -e "\nPress Enter to continue..."
+        read
+        return 1
+    fi
+    
+    # Verify server.py exists
+    if [ ! -f "server.py" ]; then
+        log_error "server.py not found in $DASHBOARD_DIR"
+        echo -e "${YELLOW}Expected location: $DASHBOARD_DIR/server.py${NC}"
         echo -e "\nPress Enter to continue..."
         read
         return 1
@@ -81,6 +98,7 @@ start_dashboard() {
            netstat -an 2>/dev/null | grep -q ":$DASHBOARD_PORT "; then
             log_warning "Port $DASHBOARD_PORT is in use by another process"
             echo -e "${YELLOW}Try stopping existing processes or changing DASHBOARD_PORT in config/settings.conf${NC}"
+            echo "Check: http://localhost:$DASHBOARD_PORT"
             echo -e "\nPress Enter to continue..."
             read
             return 1
@@ -88,6 +106,9 @@ start_dashboard() {
         
         # Start server
         log_info "Starting dashboard server on port $DASHBOARD_PORT..."
+        log_info "Working directory: $(pwd)"
+        log_info "Server file: $(pwd)/server.py"
+        
         nohup $python_cmd server.py > "$LOG_DIR/dashboard.log" 2>&1 &
         local pid=$!
         echo $pid > "$PID_FILE"
@@ -100,6 +121,9 @@ start_dashboard() {
             log_success "Dashboard started (PID: $pid)"
         else
             log_error "Failed to start dashboard. Check $LOG_DIR/dashboard.log"
+            echo "=== Error Log ==="
+            cat "$LOG_DIR/dashboard.log" 2>/dev/null
+            echo "================="
             rm -f "$PID_FILE"
             echo -e "\nPress Enter to continue..."
             read
@@ -112,18 +136,16 @@ start_dashboard() {
     log_info "Opening dashboard at $url"
     
     if command_exists xdg-open; then
-        xdg-open "$url" 2>/dev/null
+        xdg-open "$url" 2>/dev/null &
     elif command_exists open; then
-        open "$url" 2>/dev/null
-    elif command_exists start; then
-        start "$url" 2>/dev/null
+        open "$url" 2>/dev/null &
     else
         echo -e "${YELLOW}Please open manually: $url${NC}"
     fi
     
     echo
     echo -e "${CYAN}Dashboard is running in background${NC}"
-    echo -e "${YELLOW}To stop: use option 9 from main menu or run: kill \$(cat $PID_FILE)${NC}"
+    echo -e "${YELLOW}To stop: use option 9 from main menu${NC}"
     echo -e "\nPress Enter to return to menu..."
     read
 }

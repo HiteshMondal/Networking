@@ -5,6 +5,8 @@
 # Get project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+LOG_DIR="$PROJECT_ROOT/logs"
+OUTPUT_DIR="$PROJECT_ROOT/output"
 
 # Source dependencies
 source "$PROJECT_ROOT/lib/colors.sh"
