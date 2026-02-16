@@ -1,23 +1,14 @@
 #!/bin/bash
-###############################################################################
+
 # /implementation_integration/Fundamentals/setup.sh
 # Network Fundamentals - Installation & Setup Script
-###############################################################################
 
 # Get correct project root (two levels up from this script)
 FUNDAMENTALS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$FUNDAMENTALS_DIR")")"
 
 # Source dependencies
-source "$PROJECT_ROOT/lib/colors.sh" 2>/dev/null || {
-    # Fallback colors if lib not available
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
-}
+source "$PROJECT_ROOT/lib/colors.sh" 2>/dev/null 
 
 # Correct directory paths
 SCRIPT_DIR="$PROJECT_ROOT/scripts"

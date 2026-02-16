@@ -47,7 +47,7 @@ show_main_menu() {
     echo -e "\n${BLUE}═════════════════════════════════════════════════${NC}"
 }
 
-# Function to show script selection menu (OS-aware)
+# Function to show script selection menu
 show_script_menu() {
     local os=$(detect_os)
     clear
@@ -55,59 +55,29 @@ show_script_menu() {
     echo -e "${BOLD}${MAGENTA}═══════════════ Available Scripts ═══════════════${NC}\n"
     
     local option_num=1
-    
+
     echo -e "${CYAN}Network Analysis:${NC}"
-    if [[ "$os" == "linux" ]] || [[ "$os" == "macos" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Detect Suspicious Network Activity (Linux)"
-        ((option_num++))
-    fi
-    if [[ "$os" == "windows" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Detect Suspicious Network Activity (Windows)"
-        ((option_num++))
-    fi
-    
+    echo -e "${GREEN}${option_num}.${NC} Detect Suspicious Network Activity (Linux)"
+    ((option_num++))
+
     echo -e "\n${CYAN}System Security:${NC}"
-    if [[ "$os" == "linux" ]] || [[ "$os" == "macos" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Secure System (Linux)"
-        ((option_num++))
-        echo -e "${GREEN}${option_num}.${NC} Revert Security Changes (Linux)"
-        ((option_num++))
-    fi
-    if [[ "$os" == "windows" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Secure System (Windows)"
-        ((option_num++))
-    fi
-    
+    echo -e "${GREEN}${option_num}.${NC} Secure System (Linux)"
+    ((option_num++))
+    echo -e "${GREEN}${option_num}.${NC} Revert Security Changes (Linux)"
+    ((option_num++))
+
     echo -e "\n${CYAN}System Information:${NC}"
-    if [[ "$os" == "linux" ]] || [[ "$os" == "macos" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} System Information (Linux)"
-        ((option_num++))
-    fi
-    if [[ "$os" == "windows" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} System Information (Windows)"
-        ((option_num++))
-    fi
+    echo -e "${GREEN}${option_num}.${NC} System Information (Linux)"
+    ((option_num++))
     
     echo -e "\n${CYAN}Forensics:${NC}"
-    if [[ "$os" == "linux" ]] || [[ "$os" == "macos" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Forensic Data Collection (Linux)"
-        ((option_num++))
-    fi
-    if [[ "$os" == "windows" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Forensic Data Collection (Windows)"
-        ((option_num++))
-    fi
-    
+    echo -e "${GREEN}${option_num}.${NC} Forensic Data Collection (Linux)"
+    ((option_num++))
+
     echo -e "\n${CYAN}Web Reconnaissance:${NC}"
-    if [[ "$os" == "linux" ]] || [[ "$os" == "macos" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Web Reconnaissance (Linux)"
-        ((option_num++))
-    fi
-    if [[ "$os" == "windows" ]]; then
-        echo -e "${GREEN}${option_num}.${NC} Web Reconnaissance (Windows)"
-        ((option_num++))
-    fi
-    
+    echo -e "${GREEN}${option_num}.${NC} Web Reconnaissance (Linux)"
+    ((option_num++))
+
     echo -e "${RED}0.${NC} Back to Main Menu"
     echo -e "\n${MAGENTA}═════════════════════════════════════════════════${NC}"
 }

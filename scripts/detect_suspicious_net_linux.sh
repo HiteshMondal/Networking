@@ -1,26 +1,11 @@
-#!/bin/sh
-# Script: detect_suspicious_net_linux.sh
-# Purpose:
-#   Perform a broad suspicious activity scan focused on:
-#   - Network connections
-#   - Processes with network access
-#   - Persistence mechanisms (cron, systemd, SUID)
-#   - Recently modified files
-#
-# Output:
-#   All artifacts are written to ./suspicious_scan/
-#   A compressed archive is created at the end.
-#
-# Notes:
-#   - Designed for incident response / threat hunting
-#   - Best run as root for maximum visibility
+#!/bin/bash
 
-# Setup
+set -eo pipefail
 
 mkdir -p suspicious_scan
 
 # Record execution timestamp (ISO format preferred)
-date --iso-8601=seconds > suspicious_scan/run_timestamp.txt 2>/dev/null \
+date -u +"%Y-%m-%dT%H:%M:%SZ" > suspicious_scan/run_timestamp.txt 2>/dev/null \
   || date > suspicious_scan/run_timestamp.txt
 
 # Basic system identity
@@ -54,17 +39,20 @@ ss -tunapH | awk '{print $5}' \
 
 if [ -s suspicious_scan/remote_ips.txt ]; then
   # Filter out private / loopback ranges
-  grep -vE '^(127\.|::1|localhost|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' \
+  grep -vE '^(127\.|::1|localhost|fe80:|fc00:|fd00:|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' \
     suspicious_scan/remote_ips.txt \
-    > suspicious_scan/remote_ips_public.txt 2>/dev/null \
-    || cp suspicious_scan/remote_ips.txt suspicious_scan/remote_ips_public.txt
+    | sort -u \
+    > suspicious_scan/remote_ips_public.txt 2>/dev/null || \
+    cp suspicious_scan/remote_ips.txt suspicious_scan/remote_ips_public.txt
 
   # Enrich public IPs with whois, DNS, and IP info
-  xargs -n1 -P10 -I{} sh -c '
-    echo "=== {} ===" > suspicious_scan/whois_{}
-    whois {} >> suspicious_scan/whois_{} 2>/dev/null
-    nslookup {} >> suspicious_scan/whois_{} 2>/dev/null
-    curl -m 8 -sS "http://ipinfo.io/{}/json" >> suspicious_scan/whois_{} 2>/dev/null
+  # Sanitize IPs for filenames
+  xargs -P5 -I{} sh -c '
+    SAFE_IP=$(echo "{}" | tr ":" "_" | tr "/" "_")
+    echo "=== {} ===" > suspicious_scan/whois_${SAFE_IP}.txt
+    timeout 10 whois {} >> suspicious_scan/whois_${SAFE_IP}.txt 2>/dev/null
+    timeout 5 nslookup {} >> suspicious_scan/whois_${SAFE_IP}.txt 2>/dev/null
+    curl -m 8 -sS "https://ipinfo.io/{}/json" >> suspicious_scan/whois_${SAFE_IP}.txt 2>/dev/null
   ' < suspicious_scan/remote_ips_public.txt || true
 fi
 
@@ -127,12 +115,11 @@ if [ -s suspicious_scan/pids_with_network.txt ]; then
   done
 fi
 
-
 # Persistence Checks
 
 # Cron jobs
-cron -l > suspicious_scan/crontab_root.txt 2>/dev/null \
-  || crontab -l > suspicious_scan/crontab.txt 2>/dev/null || true
+crontab -l > suspicious_scan/crontab_user.txt 2>/dev/null || true
+sudo crontab -l > suspicious_scan/crontab_root.txt 2>/dev/null || true
 
 ls -la /etc/cron* > suspicious_scan/cron_dirs.txt 2>/dev/null || true
 
@@ -144,7 +131,7 @@ systemctl list-unit-files --state=enabled \
   > suspicious_scan/systemd_enabled_units.txt 2>/dev/null || true
 
 # Look for suspicious download-and-execute patterns
-grep -R "curl -s" /etc -nH 2>/dev/null | head -n 200 \
+grep -R "curl -s" /etc -nH 2>/dev/null \
   > suspicious_scan/curl_exec_in_etc.txt || true
 
 find /etc/systemd/system /lib/systemd/system -type f -name '*.service' \
@@ -155,13 +142,14 @@ find /etc/systemd/system /lib/systemd/system -type f -name '*.service' \
 # File System & Privilege Abuse
 
 # Recently modified files in common attacker locations
-find /home /tmp /var/tmp /dev/shm -type f -mtime -7 -ls \
+timeout 300 find /home /tmp /var/tmp /dev/shm -type f -mtime -7 -ls \
   > suspicious_scan/recent_tmp_files.txt 2>/dev/null || true
 
 # SUID / SGID binaries (privilege escalation vectors)
-find / -type f \( -perm -4000 -o -perm -2000 \) -ls 2>/dev/null \
+timeout 600 find / -path /proc -prune -o -path /sys -prune -o \
+  -path /dev -prune -o -path /run -prune -o \
+  -type f \( -perm -4000 -o -perm -2000 \) -ls 2>/dev/null \
   > suspicious_scan/suid_sgid_files.txt || true
-
 
 # Process Age & Rootkit Checks
 
@@ -186,7 +174,7 @@ ss -tunap | awk '{print $5}' \
   > suspicious_scan/remote_ip_counts.txt 2>/dev/null || true
 
 # Recently modified SSH-related files
-find / -iname "*ssh*" -type f -mtime -7 -ls 2>/dev/null \
+timeout 300 find /etc /home /root -iname "*ssh*" -type f -mtime -7 -ls 2>/dev/null \
   > suspicious_scan/recent_ssh_related_files.txt || true
 
 # Look for wget usage in configs (dropper behavior)

@@ -39,7 +39,11 @@ tools() {
                 fi
                 ;;
             2)
-                cat $PROJECT_ROOT/tools/guide
+                if [ -f "$PROJECT_ROOT/tools/guide" ]; then
+                    cat "$PROJECT_ROOT/tools/guide"
+                else
+                    log_error "Guide file not found at $PROJECT_ROOT/tools/guide"
+                fi
                 echo ""
                 echo -e "\nPress Enter to continue..."
                 read
