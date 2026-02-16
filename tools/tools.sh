@@ -28,10 +28,11 @@ tools() {
         echo -e "${BLUE}══════════════════════════════════════${NC}"
         echo
         echo -e "${GREEN} 1.${NC} Run Network Tools"
-        echo -e "${GREEN} 2.${NC} Run core protocols"
-        echo -e "${GREEN} 3.${NC} Run ip addressing"
+        echo -e "${GREEN} 2.${NC} Core protocols"
+        echo -e "${GREEN} 3.${NC} IP addressing"
         echo -e "${GREEN} 4.${NC} Run network master"
-        echo -e "${GREEN} 5.${NC} Run switching routing"
+        echo -e "${GREEN} 5.${NC} Switching routing"
+        echo -e "${GREEN} 6.${NC} Security_fundamentals"
         echo -e "${RED} 0.${NC} Back to Main Menu"
         echo
         echo -e "${BLUE}══════════════════════════════════════${NC}"
@@ -45,7 +46,6 @@ tools() {
                     bash "$PROJECT_ROOT/tools/network_tools.sh"
                 else
                     log_error "network_tools.sh not found at $PROJECT_ROOT/tools"
-                    sleep 2
                 fi
                 ;;
             2)  if [ -f "$PROJECT_ROOT/tools/core_protocols.sh" ]; then
@@ -53,7 +53,6 @@ tools() {
                     bash "$PROJECT_ROOT/tools/core_protocols.sh"
                 else
                     log_error "core_protocols.sh not found at $PROJECT_ROOT/tools"
-                    sleep 2
                 fi
                 ;;
             3)  if [ -f "$PROJECT_ROOT/tools/ip_addressing.sh" ]; then
@@ -61,7 +60,6 @@ tools() {
                     bash "$PROJECT_ROOT/tools/ip_addressing.sh"
                 else
                     log_error "ip_addressing.sh not found at $PROJECT_ROOT/tools"
-                    sleep 2
                 fi
                 ;;
                 
@@ -70,7 +68,6 @@ tools() {
                     bash "$PROJECT_ROOT/tools/network_master.sh"
                 else
                     log_error "network_master.sh not found at $PROJECT_ROOT/tools"
-                    sleep 2
                 fi
                 ;;
             5)  if [ -f "$PROJECT_ROOT/tools/switching_routing.sh" ]; then
@@ -78,7 +75,13 @@ tools() {
                     bash "$PROJECT_ROOT/tools/switching_routing.sh"
                 else
                     log_error "switching_routing.sh not found at $PROJECT_ROOT/tools"
-                    sleep 2
+                fi
+                ;;
+            6)  if [ -f "$PROJECT_ROOT/tools/security_fundamentals.sh" ]; then
+                    log_info "Launching Security fundamentals..."
+                    bash "$PROJECT_ROOT/tools/security_fundamentals.sh"
+                else
+                    log_error "security_fundamentals.sh not found at $PROJECT_ROOT/tools"
                 fi
                 ;;
             0)
@@ -87,7 +90,6 @@ tools() {
                 ;;
             *)
                 log_error "Invalid option. Please try again."
-                sleep 1
                 ;;
         esac
     done

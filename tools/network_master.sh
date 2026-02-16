@@ -1,22 +1,14 @@
 #!/bin/bash
 
-###############################################################################
+# /tools/network_master.sh
 # Network Concepts Checker - Master Script
 # This script runs all networking topic checks and demonstrations
-###############################################################################
 
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+LOG_DIR="$PROJECT_ROOT/logs"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="$SCRIPT_DIR/logs"
-mkdir -p "$LOG_DIR"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+mkdir -p "$LOG_DIR"
 
 # Banner
 print_banner() {
@@ -71,23 +63,23 @@ main() {
         
         case $choice in
             1)
-                run_script "01_networking_basics.sh"
+                run_script "networking_basics.sh"
                 ;;
             2)
-                run_script "02_ip_addressing.sh"
+                run_script "ip_addressing.sh"
                 ;;
             3)
-                run_script "03_core_protocols.sh"
+                run_script "core_protocols.sh"
                 ;;
             4)
-                run_script "04_switching_routing.sh"
+                run_script "switching_routing.sh"
                 ;;
             5)
                 echo -e "\n${MAGENTA}Running complete system analysis...${NC}\n"
-                run_script "01_networking_basics.sh"
-                run_script "02_ip_addressing.sh"
-                run_script "03_core_protocols.sh"
-                run_script "04_switching_routing.sh"
+                run_script "networking_basics.sh"
+                run_script "ip_addressing.sh"
+                run_script "core_protocols.sh"
+                run_script "switching_routing.sh"
                 echo -e "\n${GREEN}✓✓✓ All checks completed! ✓✓✓${NC}\n"
                 ;;
             0)

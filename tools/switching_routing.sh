@@ -1,23 +1,17 @@
 #!/bin/bash
 
-###############################################################################
-# Topic 4: Switching & Routing
+# /tools/switching_routing.sh
+# Topic: Switching & Routing
 # - Switch vs Router
 # - MAC address & CAM table
 # - VLANs
 # - Routing basics
 # - Static vs Dynamic routing
 # - Routing protocols: RIP, OSPF, BGP (conceptual)
-###############################################################################
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-NC='\033[0m'
+# Source dependencies
+source "$PROJECT_ROOT/lib/colors.sh"
+source "$PROJECT_ROOT/lib/functions.sh"
 
 header() {
     echo -e "\n${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
@@ -30,9 +24,7 @@ section() {
     echo "─────────────────────────────────────────────────────"
 }
 
-###############################################################################
-# 1. SWITCH vs ROUTER
-###############################################################################
+# SWITCH vs ROUTER
 check_switch_vs_router() {
     header "1. SWITCH vs ROUTER"
     
@@ -98,9 +90,7 @@ check_switch_vs_router() {
     fi
 }
 
-###############################################################################
-# 2. MAC ADDRESS & CAM TABLE
-###############################################################################
+# MAC ADDRESS & CAM TABLE
 check_mac_cam() {
     header "2. MAC ADDRESS & CAM TABLE"
     
@@ -179,9 +169,7 @@ check_mac_cam() {
     fi
 }
 
-###############################################################################
-# 3. VLANs (Virtual LANs)
-###############################################################################
+# VLANs (Virtual LANs)
 check_vlans() {
     header "3. VLANs - Virtual Local Area Networks"
     
@@ -253,9 +241,7 @@ check_vlans() {
     fi
 }
 
-###############################################################################
-# 4. ROUTING BASICS
-###############################################################################
+# ROUTING BASICS
 check_routing_basics() {
     header "4. ROUTING BASICS"
     
@@ -315,9 +301,7 @@ check_routing_basics() {
     fi
 }
 
-###############################################################################
-# 5. STATIC vs DYNAMIC ROUTING
-###############################################################################
+# STATIC vs DYNAMIC ROUTING
 check_static_dynamic_routing() {
     header "5. STATIC vs DYNAMIC ROUTING"
     
@@ -375,9 +359,7 @@ check_static_dynamic_routing() {
     fi
 }
 
-###############################################################################
-# 6. ROUTING PROTOCOLS (RIP, OSPF, BGP)
-###############################################################################
+# ROUTING PROTOCOLS (RIP, OSPF, BGP)
 check_routing_protocols() {
     header "6. ROUTING PROTOCOLS - RIP, OSPF, BGP"
     
@@ -488,10 +470,7 @@ EOF
     fi
 }
 
-###############################################################################
 # MAIN EXECUTION
-###############################################################################
-
 echo -e "${CYAN}"
 cat << "EOF"
 ╔══════════════════════════════════════════════════════════════════╗
