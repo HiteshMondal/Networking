@@ -16,7 +16,6 @@ source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/scripts/run_script.sh"
 source "$PROJECT_ROOT/tools/tools.sh"
 source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
-source "$PROJECT_ROOT/implementation_integration/Fundamentals/setup.sh"
 
 # Directories
 SCRIPT_DIR="$PROJECT_ROOT/scripts"
@@ -39,10 +38,8 @@ show_main_menu() {
     echo -e "${GREEN}3.${NC} View Recent Logs"
     echo -e "${GREEN}4.${NC} Clean Logs & Output"
     echo -e "${GREEN}5.${NC} System Information"
-    echo -e "${GREEN}6.${NC} Help & Documentation"
-    echo -e "${GREEN}7.${NC} Network Tools"
-    echo -e "${GREEN}8.${NC} Networking Fundamentals Setup"
-    echo -e "${GREEN}9.${NC} Stop Dashboard"
+    echo -e "${GREEN}6.${NC} Network Tools"
+    echo -e "${GREEN}7.${NC} Stop Dashboard"
     echo -e "${RED}0.${NC} Exit"
     echo -e "\n${BLUE}═════════════════════════════════════════════════${NC}"
 }
@@ -156,44 +153,6 @@ show_system_info() {
     read
 }
 
-# Function to show help
-show_help() {
-    clear
-    show_banner
-    echo -e "${BOLD}${CYAN}════════════════ Help & Documentation ═════════════════${NC}\n"
-    echo -e "${GREEN}📖 About:${NC}"
-    echo "  This toolkit automates security and network analysis tasks,"
-    echo "  making it easier to detect threats, secure systems, and gather forensic data."
-    echo ""
-    echo -e "${GREEN}✨ Features:${NC}"
-    echo "  • Detect suspicious network activity"
-    echo "  • System hardening and configuration"
-    echo "  • Forensic data collection"
-    echo "  • Web reconnaissance & scanning"
-    echo "  • Comprehensive logging and reporting"
-    echo "  • Network tools and diagnostics"
-    echo "  • Networking fundamentals practice"
-    echo ""
-    echo -e "${GREEN}🛠️ Usage:${NC}"
-    echo "  1️⃣  Choose scripts from the main menu"
-    echo "  2️⃣  Execute tasks and monitor output"
-    echo "  3️⃣  Check logs for detailed insights"
-    echo "  4️⃣  Use dashboard for visualization"
-    echo ""
-    echo -e "${GREEN}📂 Important Locations:${NC}"
-    echo -e "  Logs:    ${CYAN}$LOG_DIR${NC}"
-    echo -e "  Outputs: ${CYAN}$OUTPUT_DIR${NC}"
-    echo -e "  Config:  ${CYAN}$PROJECT_ROOT/config/settings.conf${NC}"
-    echo ""
-    echo -e "${GREEN}🔧 Configuration:${NC}"
-    echo "  Edit config/settings.conf to customize:"
-    echo "    - Dashboard port"
-    echo "    - Log rotation settings"
-    echo "    - Python command"
-    echo -e "\nPress Enter to return to the menu..."
-    read
-}
-
 # Cleanup function on exit
 cleanup() {
     log_info "Toolkit shutting down..."
@@ -234,10 +193,8 @@ main() {
             3) view_logs ;;
             4) clean_data ;;
             5) show_system_info ;;
-            6) show_help ;;
-            7) tools ;;
-            8) setup ;;
-            9) 
+            6) tools ;;
+            7) 
                 source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
                 stop_dashboard
                 echo -e "\nPress Enter to continue..."
@@ -245,6 +202,7 @@ main() {
                 ;;
             0) 
                 echo -e "\n${GREEN}Thank you for using the Networking & Cybersecurity Toolkit!${NC}"
+                echo ""
                 exit 0
                 ;;
             *) 

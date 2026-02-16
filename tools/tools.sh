@@ -6,10 +6,17 @@
 # Get project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+LOG_DIR="$PROJECT_ROOT/logs"
+OUTPUT_DIR="$PROJECT_ROOT/output"
+DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
+TOOLS_DIR="$PROJECT_ROOT/tools"
 
 # Source dependencies
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
+
+# Create directories if needed
+mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 
 # Main tools function
 tools() {
@@ -21,7 +28,10 @@ tools() {
         echo -e "${BLUE}══════════════════════════════════════${NC}"
         echo
         echo -e "${GREEN} 1.${NC} Run Network Tools"
-        echo -e "${GREEN} 2.${NC} View Tools Documentation"
+        echo -e "${GREEN} 2.${NC} Run core protocols"
+        echo -e "${GREEN} 3.${NC} Run ip addressing"
+        echo -e "${GREEN} 4.${NC} Run network master"
+        echo -e "${GREEN} 5.${NC} Run switching routing"
         echo -e "${RED} 0.${NC} Back to Main Menu"
         echo
         echo -e "${BLUE}══════════════════════════════════════${NC}"
@@ -38,15 +48,38 @@ tools() {
                     sleep 2
                 fi
                 ;;
-            2)
-                if [ -f "$PROJECT_ROOT/tools/guide" ]; then
-                    cat "$PROJECT_ROOT/tools/guide"
+            2)  if [ -f "$PROJECT_ROOT/tools/core_protocols.sh" ]; then
+                    log_info "Launching tools..."
+                    bash "$PROJECT_ROOT/tools/core_protocols.sh"
                 else
-                    log_error "Guide file not found at $PROJECT_ROOT/tools/guide"
+                    log_error "core_protocols.sh not found at $PROJECT_ROOT/tools"
+                    sleep 2
                 fi
-                echo ""
-                echo -e "\nPress Enter to continue..."
-                read
+                ;;
+            3)  if [ -f "$PROJECT_ROOT/tools/ip_addressing.sh" ]; then
+                    log_info "Launching ip addressing tools..."
+                    bash "$PROJECT_ROOT/tools/ip_addressing.sh"
+                else
+                    log_error "ip_addressing.sh not found at $PROJECT_ROOT/tools"
+                    sleep 2
+                fi
+                ;;
+                
+            4)  if [ -f "$PROJECT_ROOT/tools/network_master.sh" ]; then
+                    log_info "Launching network master tools..."
+                    bash "$PROJECT_ROOT/tools/network_master.sh"
+                else
+                    log_error "network_master.sh not found at $PROJECT_ROOT/tools"
+                    sleep 2
+                fi
+                ;;
+            5)  if [ -f "$PROJECT_ROOT/tools/switching_routing.sh" ]; then
+                    log_info "Launching switching routing..."
+                    bash "$PROJECT_ROOT/tools/switching_routing.sh"
+                else
+                    log_error "switching_routing.sh not found at $PROJECT_ROOT/tools"
+                    sleep 2
+                fi
                 ;;
             0)
                 log_info "Returning to main menu..."
