@@ -6,20 +6,24 @@
 # Bootstrap
 # IMPORTANT: SCRIPT_DIR must be set BEFORE PROJECT_ROOT
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-LOG_DIR="$PROJECT_ROOT/logs"
-mkdir -p "$LOG_DIR"
+: "${PROJECT_ROOT:="$(dirname "$SCRIPT_DIR")"}"
 
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
+# Directory paths (inherit from env if launched via tools.sh)
+: "${LOG_DIR:="${PROJECT_ROOT}/logs"}"
+: "${OUTPUT_DIR:="${PROJECT_ROOT}/output"}"
+mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 
+# Export so child bash processes (run_topic, run_all) inherit them.
+export LOG_DIR OUTPUT_DIR PROJECT_ROOT
+
+# Source dependencies
 [[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
 [[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"
 
 #  REQUIREMENTS CHECK
 check_requirements() {
     local missing=()
-    for tool in ip netstat ss ping traceroute dig nslookup arp curl openssl; do
+    for tool in ip ss ping traceroute dig nslookup curl openssl; do
         cmd_exists "$tool" || missing+=("$tool")
     done
 
@@ -27,7 +31,7 @@ check_requirements() {
         echo
         log_warning "Some tools are missing: ${missing[*]}"
         echo -e "  ${MUTED}Install with:${NC}"
-        echo -e "  ${CYAN}  sudo apt-get install iproute2 net-tools iputils-ping traceroute dnsutils curl openssl${NC}"
+        echo -e "  ${CYAN}  sudo apt-get install iproute2 iputils-ping traceroute dnsutils curl openssl${NC}"
         echo
     fi
 }
@@ -50,6 +54,7 @@ run_topic() {
     fi
 
     log_step "Launching: $script_name"
+    # bash inherits exported variables (LOG_DIR, OUTPUT_DIR, PROJECT_ROOT)
     bash "$script_path"
     local rc=$?
 
@@ -63,17 +68,26 @@ run_topic() {
 
 #  FULL SYSTEM ANALYSIS (non-interactive run-all)
 run_all() {
-    local report_file="$LOG_DIR/full_analysis_$(date '+%Y%m%d_%H%M%S').txt"
-    log_info "Full analysis — output saved to: $report_file"
+    local timestamp
+    timestamp=$(date '+%Y%m%d_%H%M%S')
+
+    # Report artifact → output/  (user-facing deliverable)
+    local report_file="${OUTPUT_DIR}/full_analysis_${timestamp}.txt"
+    # Runtime log      → logs/   (execution record)
+    local log_file="${LOG_DIR}/network_master_${timestamp}.log"
+
+    log_info "Full analysis — report: $report_file"
+    log_info "Runtime log  — log:    $log_file"
 
     {
         echo "══════════════════════════════════════════════════════"
         echo "  Network & Security Full Analysis"
-        echo "  Generated: $(date)"
-        echo "  Host: $(hostname)  OS: $(detect_os)"
+        echo "  Generated : $(date)"
+        echo "  Host      : $(hostname)"
+        echo "  OS        : $(detect_os)"
         echo "══════════════════════════════════════════════════════"
         echo
-    } > "$report_file"
+    } | tee "$report_file" | tee -a "$log_file"
 
     local topics=(
         "networking_basics.sh:Networking Basics"
@@ -88,19 +102,22 @@ run_all() {
         local script="${entry%%:*}" label="${entry##*:}"
         echo
         echo -e "${GOLD}${BOLD}┌── Running: ${label} ──${NC}"
+
+        if [[ ! -f "$SCRIPT_DIR/$script" ]]; then
+            status_line fail "$label — script missing"
+            (( failed++ ))
+            continue
+        fi
+
         {
             echo
             echo "── ${label} ──"
+            # Child script inherits LOG_DIR, OUTPUT_DIR, PROJECT_ROOT via export
             bash "$SCRIPT_DIR/$script" 2>&1 || true
-        } >> "$report_file"
+        } | tee -a "$report_file" | tee -a "$log_file"
 
-        if [[ -f "$SCRIPT_DIR/$script" ]]; then
-            status_line ok "$label — complete"
-            (( passed++ ))
-        else
-            status_line fail "$label — script missing"
-            (( failed++ ))
-        fi
+        status_line ok "$label — complete"
+        (( passed++ ))
     done
 
     echo
@@ -108,6 +125,7 @@ run_all() {
     kv "Passed"  "$passed"
     kv "Failed"  "$failed"
     kv "Report"  "$report_file"
+    kv "Log"     "$log_file"
 
     pause
 }

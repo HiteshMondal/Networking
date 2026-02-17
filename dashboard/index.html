@@ -4,167 +4,235 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cybersecurity Automation Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+    <!-- Ambient background grid -->
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow" aria-hidden="true"></div>
+
     <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-content">
-                <h1>🔒 Cybersecurity Automation Dashboard</h1>
-                <p class="subtitle">Real-time Security & Network Analysis</p>
+
+        <!-- ── Header ─────────────────────────────────────────────── -->
+        <header class="header" role="banner">
+            <div class="header-left">
+                <div class="logo-mark" aria-hidden="true">
+                    <span class="logo-icon">⬡</span>
+                </div>
+                <div class="header-text">
+                    <h1>CyberDeck</h1>
+                    <p class="subtitle">Networking &amp; Security Automation Suite</p>
+                </div>
             </div>
-            <div class="header-actions">
-                <button class="btn btn-primary" onclick="refreshDashboard()">
-                    <span class="icon">🔄</span> Refresh
-                </button>
-                <button class="btn btn-secondary" onclick="exportReport()">
-                    <span class="icon">📥</span> Export Report
-                </button>
+            <div class="header-center" role="status" aria-live="polite">
+                <div class="live-indicator">
+                    <span class="pulse-dot" aria-hidden="true"></span>
+                    <span id="liveStatus">Live</span>
+                </div>
+                <span class="separator" aria-hidden="true">|</span>
+                <span class="last-update-label">Updated <time id="lastUpdate">—</time></span>
             </div>
+            <nav class="header-actions" aria-label="Dashboard actions">
+                <button class="btn btn-ghost" id="autoRefreshBtn" onclick="toggleAutoRefresh()" aria-pressed="true" title="Toggle auto-refresh">
+                    <span class="btn-icon" aria-hidden="true">⟳</span>
+                    <span>Auto</span>
+                </button>
+                <button class="btn btn-secondary" onclick="refreshDashboard()" aria-label="Refresh dashboard now">
+                    <span class="btn-icon" aria-hidden="true">↺</span>
+                    <span>Refresh</span>
+                </button>
+                <button class="btn btn-primary" onclick="exportReport()" aria-label="Export security report">
+                    <span class="btn-icon" aria-hidden="true">↓</span>
+                    <span>Export</span>
+                </button>
+            </nav>
         </header>
 
-        <!-- Status Cards -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon">📊</div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Scans</div>
-                    <div class="stat-value" id="totalScans">0</div>
+        <!-- ── Stats Strip ────────────────────────────────────────── -->
+        <section class="stats-grid" aria-label="Execution statistics">
+            <article class="stat-card" data-status="total">
+                <div class="stat-top">
+                    <span class="stat-label">Total Scans</span>
+                    <span class="stat-chip chip-neutral" aria-hidden="true">ALL</span>
                 </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">✅</div>
-                <div class="stat-content">
-                    <div class="stat-label">Successful</div>
-                    <div class="stat-value success" id="successfulScans">0</div>
+                <div class="stat-value" id="totalScans" aria-live="polite">0</div>
+                <div class="stat-bar-track" aria-hidden="true"><div class="stat-bar" id="barTotal" style="width:0%"></div></div>
+            </article>
+            <article class="stat-card" data-status="success">
+                <div class="stat-top">
+                    <span class="stat-label">Successful</span>
+                    <span class="stat-chip chip-success" aria-hidden="true">OK</span>
                 </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">⚠️</div>
-                <div class="stat-content">
-                    <div class="stat-label">Warnings</div>
-                    <div class="stat-value warning" id="warningScans">0</div>
+                <div class="stat-value success" id="successfulScans" aria-live="polite">0</div>
+                <div class="stat-bar-track" aria-hidden="true"><div class="stat-bar bar-success" id="barSuccess" style="width:0%"></div></div>
+            </article>
+            <article class="stat-card" data-status="warning">
+                <div class="stat-top">
+                    <span class="stat-label">Warnings</span>
+                    <span class="stat-chip chip-warning" aria-hidden="true">WARN</span>
                 </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">❌</div>
-                <div class="stat-content">
-                    <div class="stat-label">Failed</div>
-                    <div class="stat-value error" id="failedScans">0</div>
+                <div class="stat-value warning" id="warningScans" aria-live="polite">0</div>
+                <div class="stat-bar-track" aria-hidden="true"><div class="stat-bar bar-warning" id="barWarning" style="width:0%"></div></div>
+            </article>
+            <article class="stat-card" data-status="error">
+                <div class="stat-top">
+                    <span class="stat-label">Failed</span>
+                    <span class="stat-chip chip-error" aria-hidden="true">ERR</span>
                 </div>
-            </div>
-        </div>
+                <div class="stat-value error" id="failedScans" aria-live="polite">0</div>
+                <div class="stat-bar-track" aria-hidden="true"><div class="stat-bar bar-error" id="barFailed" style="width:0%"></div></div>
+            </article>
+        </section>
 
-        <!-- Main Content Grid -->
+        <!-- ── Two-column panel row ───────────────────────────────── -->
         <div class="content-grid">
+
             <!-- Recent Activity -->
-            <div class="card">
+            <section class="card" aria-labelledby="activity-heading">
                 <div class="card-header">
-                    <h2>📝 Recent Activity</h2>
-                    <span class="badge" id="activityBadge">Live</span>
+                    <h2 id="activity-heading">
+                        <span class="card-icon" aria-hidden="true">◈</span>
+                        Recent Activity
+                    </h2>
+                    <span class="badge badge-live" id="activityBadge" role="status">Live</span>
                 </div>
-                <div class="card-body">
+                <div class="card-body" role="feed" aria-label="Recent script executions">
                     <div id="recentActivity" class="activity-list">
                         <div class="empty-state">
-                            <div class="empty-icon">📭</div>
-                            <p>No recent activity. Run a script to get started.</p>
+                            <div class="empty-glyph" aria-hidden="true">⬡</div>
+                            <p>No activity yet. Run a script to get started.</p>
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
             <!-- Log Files -->
-            <div class="card">
+            <section class="card" aria-labelledby="logs-heading">
                 <div class="card-header">
-                    <h2>📂 Log Files</h2>
-                    <span class="badge badge-info" id="logCount">0 files</span>
+                    <h2 id="logs-heading">
+                        <span class="card-icon" aria-hidden="true">◧</span>
+                        Log Files
+                    </h2>
+                    <span class="badge badge-info" id="logCount" role="status">0 files</span>
                 </div>
                 <div class="card-body">
-                    <div id="logFiles" class="log-list">
+                    <div id="logFiles" class="log-list" role="list" aria-label="Available log files">
                         <div class="empty-state">
-                            <div class="empty-icon">📄</div>
+                            <div class="empty-glyph" aria-hidden="true">◫</div>
                             <p>No log files available.</p>
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
         </div>
 
-        <!-- Full Width Cards -->
-        <div class="card">
+        <!-- ── Execution History ──────────────────────────────────── -->
+        <section class="card card-full" aria-labelledby="history-heading">
             <div class="card-header">
-                <h2>📊 Script Execution History</h2>
-                <select class="filter-select" id="scriptFilter" onchange="filterHistory()">
-                    <option value="all">All Scripts</option>
-                    <option value="network">Network Analysis</option>
-                    <option value="security">Security</option>
-                    <option value="forensic">Forensics</option>
-                    <option value="recon">Reconnaissance</option>
-                </select>
+                <h2 id="history-heading">
+                    <span class="card-icon" aria-hidden="true">◈</span>
+                    Execution History
+                </h2>
+                <div class="card-header-controls">
+                    <label for="scriptFilter" class="sr-only">Filter by category</label>
+                    <select class="filter-select" id="scriptFilter" onchange="filterHistory()">
+                        <option value="all">All Categories</option>
+                        <option value="network">Network</option>
+                        <option value="security">Security</option>
+                        <option value="forensic">Forensics</option>
+                        <option value="recon">Recon</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <label for="statusFilter" class="sr-only">Filter by status</label>
+                    <select class="filter-select" id="statusFilter" onchange="filterHistory()">
+                        <option value="all">All Statuses</option>
+                        <option value="success">Success</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
+                    </select>
+                </div>
             </div>
-            <div class="card-body">
-                <div class="table-container">
-                    <table class="data-table">
+            <div class="card-body card-body-table">
+                <div class="table-container" role="region" aria-label="Script execution history" tabindex="0">
+                    <table class="data-table" aria-describedby="history-heading">
                         <thead>
                             <tr>
-                                <th>Timestamp</th>
-                                <th>Script Name</th>
-                                <th>Category</th>
-                                <th>Status</th>
-                                <th>Duration</th>
-                                <th>Actions</th>
+                                <th scope="col">Timestamp</th>
+                                <th scope="col">Script</th>
+                                <th scope="col">Category</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Duration</th>
+                                <th scope="col"><span class="sr-only">Actions</span></th>
                             </tr>
                         </thead>
                         <tbody id="historyTable">
                             <tr>
-                                <td colspan="6" class="empty-row">No execution history available</td>
+                                <td colspan="6" class="empty-row">No execution history yet</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Output Files -->
-        <div class="card">
+        <!-- ── Output Files ───────────────────────────────────────── -->
+        <section class="card card-full" aria-labelledby="outputs-heading">
             <div class="card-header">
-                <h2>💾 Output Files</h2>
-                <span class="badge badge-info" id="outputCount">0 files</span>
+                <h2 id="outputs-heading">
+                    <span class="card-icon" aria-hidden="true">◪</span>
+                    Output Files
+                </h2>
+                <span class="badge badge-info" id="outputCount" role="status">0 files</span>
             </div>
             <div class="card-body">
-                <div id="outputFiles" class="file-grid">
+                <div id="outputFiles" class="file-grid" role="list" aria-label="Generated output files">
                     <div class="empty-state">
-                        <div class="empty-icon">📦</div>
+                        <div class="empty-glyph" aria-hidden="true">◫</div>
                         <p>No output files generated yet.</p>
                     </div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Footer -->
-        <footer class="footer">
-            <p>Last Updated: <span id="lastUpdate">Never</span></p>
-            <p>Networking & Cybersecurity Automation Toolkit v1.0</p>
+        <!-- ── Footer ─────────────────────────────────────────────── -->
+        <footer class="footer" role="contentinfo">
+            <span class="footer-logo" aria-hidden="true">⬡</span>
+            <span>Networking &amp; Cybersecurity Automation Toolkit</span>
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <span>v1.0</span>
         </footer>
     </div>
 
-    <!-- Modal for Log Viewer -->
-    <div id="logModal" class="modal">
+    <!-- ── Log Viewer Modal ───────────────────────────────────────── -->
+    <div id="logModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="modalTitle">Log Viewer</h2>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <button class="modal-close" onclick="closeModal()" aria-label="Close log viewer">✕</button>
+            </div>
+            <div class="modal-toolbar">
+                <span class="mono-tag" id="modalMeta">—</span>
+                <div class="modal-toolbar-actions">
+                    <button class="btn btn-ghost btn-sm" onclick="copyLogContent()" aria-label="Copy log content">
+                        <span aria-hidden="true">⧉</span> Copy
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="downloadCurrentLog()" aria-label="Download log file">
+                        <span aria-hidden="true">↓</span> Download
+                    </button>
+                </div>
             </div>
             <div class="modal-body">
-                <pre id="logContent">Loading...</pre>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
-                <button class="btn btn-primary" onclick="downloadCurrentLog()">Download</button>
+                <pre id="logContent" tabindex="0">Loading…</pre>
             </div>
         </div>
     </div>
+
+    <!-- ── Toast notification ─────────────────────────────────────── -->
+    <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true"></div>
 
     <script src="app.js"></script>
 </body>

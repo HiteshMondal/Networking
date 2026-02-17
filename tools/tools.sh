@@ -2,30 +2,33 @@
 
 # /tools/tools.sh
 # Tools menu handler
-#  Double-source guard 
-# This file is sourced by run.sh
 
+# Double-source guard (NOT exported)
 [[ -n "$_TOOLS_LOADED" ]] && return 0
-export _TOOLS_LOADED=1
+_TOOLS_LOADED=1
 
 # Path resolution
-# SCRIPT_DIR must be resolved before PROJECT_ROOT.
 _TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Only set PROJECT_ROOT if not already exported by a parent script.
+# Use :=  so a value already set by run.sh is never overwritten.
 : "${PROJECT_ROOT:="$(dirname "$_TOOLS_DIR")"}"
+
+# Canonical directory paths (exported for child scripts)
+export LOG_DIR="${PROJECT_ROOT}/logs"
+export OUTPUT_DIR="${PROJECT_ROOT}/output"
 
 # Source dependencies
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
 
-# Directory init (inside function, not at top level)
+# Directory init (called at entry point, not at source time)
 _tools_init() {
-    mkdir -p "$PROJECT_ROOT/logs" "$PROJECT_ROOT/output"
+    mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 }
 
-#  DISPATCH HELPER
-#  Usage: _launch "label" "tools/script.sh"
-#  Validates the script exists then runs it in a subshell.
+# DISPATCH HELPER
+# Usage: _launch "label" "tools/script.sh"
+# Validates the script exists, then runs it in a subshell.
+# stdout+stderr are tee'd to a timestamped log file in $LOG_DIR.
 _launch() {
     local label="$1"
     local relative_path="$2"
@@ -35,20 +38,35 @@ _launch() {
         log_error "${label}: script not found at ${full_path}"
         return 1
     fi
-
     if [[ ! -r "$full_path" ]]; then
         log_error "${label}: script is not readable (check permissions)"
         return 1
     fi
 
-    log_info "Launching ${label}..."
-    bash "$full_path"
-    local rc=$?
-    [[ $rc -ne 0 ]] && log_warning "${label} exited with code ${rc}"
-    return $rc
+    # Build a filename-safe version of the label for the log file name.
+    local safe_label
+    safe_label=$(echo "$label" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_')
+    local log_file="${LOG_DIR}/${safe_label}_$(date '+%Y%m%d_%H%M%S').log"
+
+    log_info "Launching ${label}…"
+    log_info "Log: ${log_file}"
+
+    # Run the tool, tee output to log file so the dashboard can read it.
+    {
+        echo "=== ${label} started at $(date) ==="
+        bash "$full_path"
+        local rc=$?
+        echo "=== ${label} completed at $(date) with exit code ${rc} ==="
+        return $rc
+    } 2>&1 | tee -a "$log_file"
+
+    # Recover the actual exit code from the subshell via PIPESTATUS.
+    local exit_code="${PIPESTATUS[0]}"
+    [[ $exit_code -ne 0 ]] && log_warning "${label} exited with code ${exit_code}"
+    return $exit_code
 }
 
-#  MENU DISPLAY
+# MENU DISPLAY
 _tools_menu() {
     clear
     show_banner
@@ -69,17 +87,15 @@ _tools_menu() {
     echo -e "${BOLD_BLUE}══════════════════════════════════════════${NC}"
 }
 
-#  MAIN TOOLS FUNCTION
-#  Called from run.sh: tools
+# MAIN TOOLS FUNCTION
+# Called from run.sh: tools
 tools() {
     _tools_init
-
     while true; do
         _tools_menu
-        read -rp "$(echo -e "  ${PROMPT}Choose an option:${NC} ")" choice
+        read -rp "$(echo -e "  ${PROMPT}Choose an option:${NC} ")" tools_choice
         echo
-
-        case "$choice" in
+        case "$tools_choice" in
             1) _launch "Network Tools"          "tools/network_tools.sh"         ;;
             2) _launch "Core Protocols"         "tools/core_protocols.sh"        ;;
             3) _launch "IP Addressing"          "tools/ip_addressing.sh"         ;;
@@ -88,11 +104,11 @@ tools() {
             6) _launch "Switching & Routing"    "tools/switching_routing.sh"     ;;
             7) _launch "Security Fundamentals"  "tools/security_fundamentals.sh" ;;
             0)
-                log_info "Returning to main menu..."
+                log_info "Returning to main menu…"
                 return 0
                 ;;
             *)
-                log_error "Invalid option '${choice}'. Please try again."
+                log_error "Invalid option '${tools_choice}'. Please try again."
                 sleep 1
                 ;;
         esac
