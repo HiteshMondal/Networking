@@ -4,15 +4,15 @@
 # Network Tools Analyzer & Live Monitor
 # New: input sanitization, bandwidth test, DNS bench, port range scanner, whois, better output
 
-# ── Bootstrap ────────────────────────────────────────────
+# Bootstrap
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$_SELF_DIR")"
-[[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
-[[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"
+source "$PROJECT_ROOT/lib/colors.sh"
+source "$PROJECT_ROOT/lib/functions.sh"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 mkdir -p "$OUTPUT_DIR"
 
-# ── Package manager detection (cached) ──────────────────
+# Package manager detection (cached)
 PKG_MANAGER=""
 detect_pkg_manager() {
     [[ -n "$PKG_MANAGER" ]] && return
@@ -22,7 +22,7 @@ detect_pkg_manager() {
     PKG_MANAGER="unknown"
 }
 
-# Install a package if missing
+# Install a package if missing, then verify the binary is reachable.
 ensure_tool() {
     local tool="$1" pkg="${2:-$1}"
     cmd_exists "$tool" && return 0
@@ -35,6 +35,15 @@ ensure_tool() {
         brew)   brew install "$pkg" ;;
         *)      log_error "Cannot auto-install $pkg — please install manually"; return 1 ;;
     esac
+    # Re-verify: a successful package-manager exit code does not
+    # guarantee the binary is on the current PATH.
+    if cmd_exists "$tool"; then
+        log_success "$tool installed and available"
+        return 0
+    else
+        log_error "$tool installed but not found on PATH — try: hash -r"
+        return 1
+    fi
 }
 
 # Safely prompt for a host/IP
@@ -240,13 +249,27 @@ run_dns_bench() {
     printf "  ${BOLD}%-16s %-14s %-8s %s${NC}\n" "Resolver" "Provider" "Time(ms)" "Answer"
     printf "  ${DARK_GRAY}%-16s %-14s %-8s %s${NC}\n" "────────────────" "──────────────" "────────" "──────────"
 
+    # Detect whether nanosecond timestamps are available once, outside the loop.
+    local use_ns=0
+    date +%s%N 2>/dev/null | grep -qP '^\d{19}' && use_ns=1
+
     for rs in "${resolvers[@]}"; do
         local ip="${rs%%:*}" name="${rs##*:}"
         local t_start t_end elapsed answer
-        t_start=$(date +%s%N 2>/dev/null || date +%s)
+
+        t_start=$(date +%s%N 2>/dev/null)
         answer=$(dig +short +time=2 "$domain" "@$ip" 2>/dev/null | head -1)
-        t_end=$(date +%s%N 2>/dev/null || date +%s)
-        elapsed=$(( (t_end - t_start) / 1000000 ))
+        t_end=$(date +%s%N 2>/dev/null)
+
+        if [[ "$use_ns" -eq 1 ]]; then
+            elapsed=$(( (t_end - t_start) / 1000000 ))   # nanoseconds → ms
+        else
+            # Second-precision fallback: use SECONDS builtin or two date +%s calls
+            t_start=$(date +%s)
+            answer=$(dig +short +time=2 "$domain" "@$ip" 2>/dev/null | head -1)
+            t_end=$(date +%s)
+            elapsed=$(( (t_end - t_start) * 1000 ))       # seconds → ms (rough)
+        fi
 
         local color="$GREEN"
         (( elapsed > 200 )) && color="$YELLOW"

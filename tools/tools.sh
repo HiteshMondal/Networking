@@ -2,7 +2,8 @@
 
 # /tools/tools.sh
 # Tools menu handler
-# This file is sourced by run.sh.
+#  Double-source guard 
+# This file is sourced by run.sh
 
 [[ -n "$_TOOLS_LOADED" ]] && return 0
 export _TOOLS_LOADED=1
@@ -13,9 +14,9 @@ _TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Only set PROJECT_ROOT if not already exported by a parent script.
 : "${PROJECT_ROOT:="$(dirname "$_TOOLS_DIR")"}"
 
-#  Source dependencies (guarded — avoid double-source) 
-[[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
-[[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"
+# Source dependencies
+source "$PROJECT_ROOT/lib/colors.sh"
+source "$PROJECT_ROOT/lib/functions.sh"
 
 # Directory init (inside function, not at top level)
 _tools_init() {
@@ -25,7 +26,6 @@ _tools_init() {
 #  DISPATCH HELPER
 #  Usage: _launch "label" "tools/script.sh"
 #  Validates the script exists then runs it in a subshell.
-#  Adding a new tool = one line in the case statement.
 _launch() {
     local label="$1"
     local relative_path="$2"

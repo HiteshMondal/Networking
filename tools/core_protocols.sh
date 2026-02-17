@@ -5,15 +5,14 @@
 # Covers: TCP/UDP, HTTP/HTTPS, FTP/SFTP, SMTP/POP3/IMAP, DNS, ICMP
 # New: interactive menu, port-scanner helper, DNS zone-walk, custom target input
 
-# ── Bootstrap ────────────────────────────────────────────
+# Bootstrap
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$_SELF_DIR")"
-[[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
-[[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"
+source "$PROJECT_ROOT/lib/colors.sh"
+source "$PROJECT_ROOT/lib/functions.sh"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 mkdir -p "$OUTPUT_DIR"
 
-# TCP vs UDP
 check_tcp_udp() {
     header "TCP vs UDP — Transport Layer Protocols"
 
@@ -76,7 +75,6 @@ check_tcp_udp() {
     fi
 }
 
-# HTTP / HTTPS
 check_http_protocols() {
     header "HTTP / HTTPS — Web Protocols"
 
@@ -153,7 +151,6 @@ INFO
     fi
 }
 
-# FTP / SFTP
 check_ftp_protocols() {
     header "FTP / SFTP — File Transfer Protocols"
 
@@ -214,7 +211,6 @@ INFO
     fi
 }
 
-# Email Protocols
 check_email_protocols() {
     header "Email Protocols — SMTP, POP3, IMAP"
 
@@ -270,7 +266,6 @@ INFO
     fi
 }
 
-# DNS
 check_dns() {
     header "DNS — Domain Name System"
 
@@ -365,7 +360,6 @@ INFO
     fi
 }
 
-# ICMP
 check_icmp() {
     header "ICMP — Internet Control Message Protocol"
 

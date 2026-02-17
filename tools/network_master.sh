@@ -2,14 +2,16 @@
 
 # /tools/network_master.sh
 # Network Concepts Checker — Master Launcher
-# FIXED: PROJECT_ROOT was computed from wrong variable order; now correctly resolved.
 
-# ── Bootstrap ────────────────────────────────────────────
+# Bootstrap
 # IMPORTANT: SCRIPT_DIR must be set BEFORE PROJECT_ROOT
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
+
+source "$PROJECT_ROOT/lib/colors.sh"
+source "$PROJECT_ROOT/lib/functions.sh"
 
 [[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
 [[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"

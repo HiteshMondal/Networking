@@ -5,11 +5,11 @@
 # Covers: IPv4/IPv6, Subnetting (CIDR/VLSM), Private/Public, NAT/PAT, ARP
 # New: interactive subnet calculator, CIDR chart, ARP watch, custom IP analysis
 
-# ── Bootstrap ────────────────────────────────────────────
+#  Bootstrap
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$_SELF_DIR")"
-[[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
-[[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"
+source "$PROJECT_ROOT/lib/colors.sh"
+source "$PROJECT_ROOT/lib/functions.sh"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 mkdir -p "$OUTPUT_DIR"
 
