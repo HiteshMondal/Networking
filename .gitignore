@@ -68,6 +68,7 @@ ldapsearch.out
 # Generic outputs/logs
 *.out
 *.log
+*/logs/
 *.tmp
 *.temp
 *.cache

@@ -18,9 +18,7 @@ section() {
     echo "─────────────────────────────────────────────────────"
 }
 
-###############################################################################
-# 1. OSI MODEL - All 7 Layers
-###############################################################################
+# OSI MODEL - All 7 Layers
 check_osi_model() {
     header "1. OSI MODEL - 7 LAYERS"
     
@@ -66,9 +64,7 @@ check_osi_model() {
     ip -s link 2>/dev/null | grep -E "(state|RX:|TX:)" || ifconfig | grep -E "(UP|DOWN|RX|TX)"
 }
 
-###############################################################################
-# 2. TCP/IP MODEL
-###############################################################################
+# TCP/IP MODEL
 check_tcpip_model() {
     header "2. TCP/IP MODEL - 4 Layers"
     
@@ -98,9 +94,7 @@ check_tcpip_model() {
     ip neigh show 2>/dev/null || arp -n
 }
 
-###############################################################################
-# 3. BANDWIDTH vs LATENCY vs THROUGHPUT
-###############################################################################
+# BANDWIDTH vs LATENCY vs THROUGHPUT
 check_bandwidth_concepts() {
     header "3. BANDWIDTH vs LATENCY vs THROUGHPUT"
     
@@ -137,9 +131,7 @@ check_bandwidth_concepts() {
     echo -e "\n${YELLOW}Note: To measure true throughput, you need tools like iperf3 or speedtest-cli${NC}"
 }
 
-###############################################################################
-# 4. PACKET SWITCHING vs CIRCUIT SWITCHING
-###############################################################################
+# PACKET SWITCHING vs CIRCUIT SWITCHING
 check_switching_types() {
     header "4. PACKET SWITCHING vs CIRCUIT SWITCHING"
     
@@ -183,10 +175,7 @@ check_switching_types() {
     ss -tn 2>/dev/null | head -10 || netstat -tn 2>/dev/null | head -10
 }
 
-###############################################################################
 # MAIN EXECUTION
-###############################################################################
-
 echo -e "${CYAN}"
 cat << "EOF"
 ╔══════════════════════════════════════════════════════════════════╗

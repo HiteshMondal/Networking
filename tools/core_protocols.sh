@@ -1,403 +1,477 @@
 #!/bin/bash
 
 # /tools/core_protocols.sh
-# Topic: Core Protocols
-# - TCP vs UDP
-# - HTTP / HTTPS
-# - FTP / SFTP
-# - SMTP, POP3, IMAP
-# - DNS (records: A, AAAA, CNAME, MX, TXT)
-# - ICMP (ping, traceroute)
+# Topic: Core Protocols — Interactive Deep-Dive
+# Covers: TCP/UDP, HTTP/HTTPS, FTP/SFTP, SMTP/POP3/IMAP, DNS, ICMP
+# New: interactive menu, port-scanner helper, DNS zone-walk, custom target input
 
-header() {
-    echo -e "\n${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║  $1${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}\n"
-}
-
-section() {
-    echo -e "\n${YELLOW}▶ $1${NC}"
-    echo "─────────────────────────────────────────────────────"
-}
+# ── Bootstrap ────────────────────────────────────────────
+_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$_SELF_DIR")"
+[[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
+[[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"
+OUTPUT_DIR="$PROJECT_ROOT/output"
+mkdir -p "$OUTPUT_DIR"
 
 # TCP vs UDP
 check_tcp_udp() {
-    header "1. TCP vs UDP - Transport Layer Protocols"
-    
-    echo -e "${GREEN}Comparing TCP and UDP:${NC}\n"
-    
-    echo "TCP (Transmission Control Protocol):"
-    echo "  • Connection-oriented (3-way handshake)"
-    echo "  • Reliable delivery (acknowledgments, retransmission)"
-    echo "  • Ordered delivery (packets arrive in sequence)"
-    echo "  • Flow control & congestion control"
-    echo "  • Error checking"
-    echo "  • Slower, more overhead"
-    echo "  • Use cases: HTTP, HTTPS, FTP, SSH, Email"
-    
-    echo ""
-    echo "UDP (User Datagram Protocol):"
-    echo "  • Connectionless (no handshake)"
-    echo "  • Unreliable (no delivery guarantee)"
-    echo "  • No ordering guarantee"
-    echo "  • No flow control"
-    echo "  • Minimal error checking"
-    echo "  • Faster, less overhead"
-    echo "  • Use cases: DNS, VoIP, Video streaming, Gaming"
-    
-    echo ""
-    echo "TCP Three-Way Handshake:"
-    echo "  1. SYN     →  Client to Server"
-    echo "  2. SYN-ACK ←  Server to Client"
-    echo "  3. ACK     →  Client to Server"
-    echo "  [Connection Established]"
-    
-    section "TCP and UDP connections on this system"
-    
-    echo -e "${BLUE}Active TCP connections:${NC}"
-    ss -tn 2>/dev/null | head -15 || netstat -tn 2>/dev/null | head -15
-    
-    echo -e "\n${BLUE}Listening TCP ports:${NC}"
-    ss -tln 2>/dev/null | head -10 || netstat -tln 2>/dev/null | head -10
-    
-    echo -e "\n${BLUE}Active UDP sockets:${NC}"
-    ss -un 2>/dev/null | head -10 || netstat -un 2>/dev/null | head -10
-    
-    echo -e "\n${BLUE}TCP/UDP statistics:${NC}"
-    ss -s 2>/dev/null || netstat -s 2>/dev/null | grep -A 10 "Tcp:\|Udp:"
+    header "TCP vs UDP — Transport Layer Protocols"
+
+    echo -e "${BOLD}${WHITE}Conceptual Comparison${NC}"
+    printf "\n  ${BOLD}%-32s %-32s${NC}\n" "TCP" "UDP"
+    printf "  ${DARK_GRAY}%-32s %-32s${NC}\n" "$(printf '─%.0s' {1..30})" "$(printf '─%.0s' {1..30})"
+    local -A tcp=( [mode]="Connection-oriented" [reliable]="Yes (ACK + retransmit)" [order]="Guaranteed" [flow]="Yes" [speed]="Slower" [uses]="HTTP, SSH, FTP, Email" )
+    local -A udp=( [mode]="Connectionless" [reliable]="No guarantee" [order]="Not guaranteed" [flow]="No" [speed]="Faster" [uses]="DNS, VoIP, Streaming, Gaming" )
+    local fields=(mode reliable order flow speed uses)
+    local labels=("Mode" "Reliability" "Ordering" "Flow control" "Speed" "Common uses")
+    for i in "${!fields[@]}"; do
+        printf "  ${GREEN}%-32s${NC} ${CYAN}%-32s${NC}\n" "${labels[$i]}: ${tcp[${fields[$i]}]}" "${labels[$i]}: ${udp[${fields[$i]}]}"
+    done
+
+    echo
+    echo -e "${YELLOW}${BOLD}TCP Three-Way Handshake:${NC}"
+    echo -e "  ${GREEN}Client${NC}  ──── SYN ────►  ${BLUE}Server${NC}"
+    echo -e "  ${GREEN}Client${NC}  ◄── SYN-ACK ──  ${BLUE}Server${NC}"
+    echo -e "  ${GREEN}Client${NC}  ──── ACK ────►  ${BLUE}Server${NC}"
+    echo -e "  ${MUTED}[Connection Established — data transfer begins]${NC}"
+
+    echo
+    echo -e "${YELLOW}${BOLD}TCP Four-Way Teardown:${NC}"
+    echo -e "  ${GREEN}Client${NC}  ──── FIN ────►  ${BLUE}Server${NC}"
+    echo -e "  ${GREEN}Client${NC}  ◄─── ACK ─────  ${BLUE}Server${NC}"
+    echo -e "  ${GREEN}Client${NC}  ◄─── FIN ─────  ${BLUE}Server${NC}"
+    echo -e "  ${GREEN}Client${NC}  ──── ACK ────►  ${BLUE}Server${NC}"
+
+    section "Live TCP/UDP Observations"
+
+    echo -e "${INFO}Active TCP connections:${NC}"
+    ss -tn 2>/dev/null | head -12 || netstat -tn 2>/dev/null | head -12
+
+    echo
+    echo -e "${INFO}Listening TCP ports:${NC}"
+    ss -tlnp 2>/dev/null | head -12 || netstat -tlnp 2>/dev/null | head -12
+
+    echo
+    echo -e "${INFO}Active UDP sockets:${NC}"
+    ss -ulnp 2>/dev/null | head -10 || netstat -ulnp 2>/dev/null | head -10
+
+    echo
+    echo -e "${INFO}Socket summary:${NC}"
+    ss -s 2>/dev/null
+
+    section "Custom Port Probe"
+    read -rp "$(echo -e "  ${PROMPT}Enter host to probe [default: localhost]:${NC} ")" probe_host
+    probe_host="${probe_host:-localhost}"
+    if is_valid_host "$probe_host" || is_valid_ip "$probe_host"; then
+        echo -e "  ${MUTED}Scanning common ports on ${probe_host}...${NC}"
+        for port in 21 22 23 25 53 80 110 143 443 3306 3389 5432 8080 8443; do
+            if port_open "$probe_host" "$port"; then
+                printf "  ${SUCCESS}%-6s OPEN${NC}\n" "$port"
+            else
+                printf "  ${MUTED}%-6s closed${NC}\n" "$port"
+            fi
+        done
+    else
+        log_warning "Invalid host input — skipping probe."
+    fi
 }
 
 # HTTP / HTTPS
 check_http_protocols() {
-    header "2. HTTP / HTTPS - Web Protocols"
-    
-    echo -e "${GREEN}Understanding HTTP and HTTPS:${NC}\n"
-    
-    echo "HTTP (Hypertext Transfer Protocol):"
-    echo "  • Port: 80"
-    echo "  • Stateless request/response protocol"
-    echo "  • Methods: GET, POST, PUT, DELETE, HEAD, etc."
-    echo "  • Unencrypted - visible to eavesdroppers"
-    echo "  • Text-based protocol"
-    
-    echo ""
-    echo "HTTPS (HTTP Secure):"
-    echo "  • Port: 443"
-    echo "  • HTTP over TLS/SSL encryption"
-    echo "  • Encrypts data in transit"
-    echo "  • Certificate-based authentication"
-    echo "  • Essential for sensitive data"
-    
-    echo ""
-    echo "HTTP Request Methods:"
-    echo "  GET     - Retrieve data"
-    echo "  POST    - Submit data"
-    echo "  PUT     - Update/replace data"
-    echo "  DELETE  - Remove data"
-    echo "  HEAD    - Get headers only"
-    echo "  PATCH   - Partial update"
-    
-    section "Testing HTTP/HTTPS"
-    
-    echo -e "${BLUE}Checking for listening web servers:${NC}"
-    ss -tln 2>/dev/null | grep -E ":80 |:443 |:8080 " || netstat -tln 2>/dev/null | grep -E ":80 |:443 |:8080 "
-    
-    echo -e "\n${BLUE}Making HTTP request (example.com):${NC}"
-    if command -v curl &> /dev/null; then
-        echo "HTTP response headers:"
-        curl -sI http://example.com 2>/dev/null | head -10
-    else
-        echo "curl not available"
+    header "HTTP / HTTPS — Web Protocols"
+
+    cat << 'INFO'
+  HTTP (Hypertext Transfer Protocol)
+    Port    : 80
+    Security: Unencrypted — plaintext over the wire
+    Methods : GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
+
+  HTTPS (HTTP over TLS)
+    Port    : 443
+    Security: TLS 1.2 / 1.3 encrypted
+    Features: Certificate authentication, HSTS, ALPN
+
+  HTTP Status Code Groups
+    1xx — Informational  (100 Continue, 101 Switching Protocols)
+    2xx — Success        (200 OK, 201 Created, 204 No Content)
+    3xx — Redirection    (301 Moved, 302 Found, 304 Not Modified)
+    4xx — Client Error   (400 Bad Request, 401 Unauth, 403 Forbidden, 404 Not Found)
+    5xx — Server Error   (500 Internal, 502 Bad Gateway, 503 Unavailable)
+INFO
+
+    section "Local Web Services"
+    echo -e "${INFO}Listening on common web ports:${NC}"
+    ss -tlnp 2>/dev/null | grep -E ":80 |:443 |:8080 |:8443 |:8888 " \
+        || echo -e "  ${MUTED}None detected${NC}"
+
+    section "Live HTTP/HTTPS Probe"
+    read -rp "$(echo -e "  ${PROMPT}Enter domain to probe [default: example.com]:${NC} ")" test_domain
+    test_domain="${test_domain:-example.com}"
+    if ! (is_valid_host "$test_domain" || is_valid_ip "$test_domain"); then
+        log_warning "Invalid input — using example.com"
+        test_domain="example.com"
     fi
-    
-    echo -e "\n${BLUE}Making HTTPS request (example.com):${NC}"
-    if command -v curl &> /dev/null; then
-        echo "HTTPS response with TLS info:"
-        curl -sI https://example.com 2>/dev/null | head -5
-        echo ""
-        echo "TLS/SSL certificate info:"
-        echo | openssl s_client -connect example.com:443 2>/dev/null | grep -E "subject=|issuer=" || echo "OpenSSL not available"
+
+    if cmd_exists curl; then
+        echo
+        echo -e "${INFO}HTTP response headers for ${test_domain}:${NC}"
+        curl -sI --max-time 5 "http://${test_domain}" 2>/dev/null | head -15 \
+            || echo -e "  ${MUTED}No response${NC}"
+
+        echo
+        echo -e "${INFO}HTTPS response headers for ${test_domain}:${NC}"
+        curl -sI --max-time 5 "https://${test_domain}" 2>/dev/null | head -15 \
+            || echo -e "  ${MUTED}No response${NC}"
+
+        echo
+        echo -e "${INFO}Measuring HTTP response time:${NC}"
+        curl -so /dev/null \
+            -w "  DNS lookup   : %{time_namelookup}s\n  TCP connect  : %{time_connect}s\n  TLS handshake: %{time_appconnect}s\n  TTFB         : %{time_starttransfer}s\n  Total        : %{time_total}s\n  HTTP status  : %{http_code}\n" \
+            --max-time 8 "https://${test_domain}" 2>/dev/null \
+            || echo -e "  ${MUTED}Timing unavailable${NC}"
     else
-        echo "curl not available"
+        log_warning "curl not available — skipping live probes"
+    fi
+
+    if cmd_exists openssl; then
+        echo
+        echo -e "${INFO}TLS certificate details for ${test_domain}:${NC}"
+        echo | openssl s_client -connect "${test_domain}:443" -servername "$test_domain" 2>/dev/null \
+            | openssl x509 -noout -subject -issuer -dates 2>/dev/null \
+            || echo -e "  ${MUTED}Could not retrieve certificate${NC}"
+
+        echo
+        echo -e "${INFO}Supported TLS versions for ${test_domain}:${NC}"
+        for proto in tls1_2 tls1_3; do
+            if echo | openssl s_client -connect "${test_domain}:443" \
+                    -"$proto" 2>/dev/null | grep -q "Cipher is"; then
+                echo -e "  ${SUCCESS}TLS ${proto/tls1_/1.} supported${NC}"
+            else
+                echo -e "  ${MUTED}TLS ${proto/tls1_/1.} not negotiated${NC}"
+            fi
+        done
     fi
 }
 
 # FTP / SFTP
 check_ftp_protocols() {
-    header "3. FTP / SFTP - File Transfer Protocols"
-    
-    echo -e "${GREEN}Understanding file transfer protocols:${NC}\n"
-    
-    echo "FTP (File Transfer Protocol):"
-    echo "  • Ports: 20 (data), 21 (control)"
-    echo "  • Unencrypted file transfer"
-    echo "  • Active vs Passive modes"
-    echo "  • Authentication with username/password"
-    echo "  • Security risk - transmits credentials in clear text"
-    
-    echo ""
-    echo "SFTP (SSH File Transfer Protocol):"
-    echo "  • Port: 22 (over SSH)"
-    echo "  • Encrypted file transfer"
-    echo "  • Part of SSH protocol suite"
-    echo "  • Secure authentication"
-    echo "  • Preferred over FTP"
-    
-    echo ""
-    echo "Other secure alternatives:"
-    echo "  • FTPS (FTP over SSL/TLS) - Ports 989/990"
-    echo "  • SCP (Secure Copy) - Port 22"
-    
-    section "FTP/SFTP services on this system"
-    
-    echo -e "${BLUE}Checking for FTP/SFTP listeners:${NC}"
-    if ss -tln 2>/dev/null | grep -E ":21 |:22 |:989 |:990 "; then
-        ss -tln 2>/dev/null | grep -E ":21 |:22 |:989 |:990 "
-    else
-        echo "No FTP/SFTP services detected on standard ports"
-    fi
-    
-    echo -e "\n${BLUE}SSH server status (SFTP capability):${NC}"
-    if systemctl is-active sshd &>/dev/null || systemctl is-active ssh &>/dev/null; then
-        echo "  ✓ SSH server is running (SFTP available)"
-        if [[ -f /etc/ssh/sshd_config ]]; then
-            grep -E "^Subsystem.*sftp" /etc/ssh/sshd_config 2>/dev/null || echo "  SFTP subsystem configuration not found"
-        fi
-    else
-        echo "  ✗ SSH server not running"
-    fi
-}
+    header "FTP / SFTP — File Transfer Protocols"
 
-# SMTP, POP3, IMAP
-check_email_protocols() {
-    header "4. Email Protocols - SMTP, POP3, IMAP"
-    
-    echo -e "${GREEN}Understanding email protocols:${NC}\n"
-    
-    echo "SMTP (Simple Mail Transfer Protocol):"
-    echo "  • Port: 25 (unencrypted), 587 (STARTTLS), 465 (SSL/TLS)"
-    echo "  • Purpose: SENDING email"
-    echo "  • Mail Transfer Agent (MTA) protocol"
-    echo "  • Push protocol (client to server)"
-    echo "  • Used by email clients and servers"
-    
-    echo ""
-    echo "POP3 (Post Office Protocol v3):"
-    echo "  • Port: 110 (unencrypted), 995 (SSL/TLS)"
-    echo "  • Purpose: RECEIVING email"
-    echo "  • Downloads emails to local device"
-    echo "  • Typically deletes from server after download"
-    echo "  • Simple, but no synchronization"
-    echo "  • Good for single device access"
-    
-    echo ""
-    echo "IMAP (Internet Message Access Protocol):"
-    echo "  • Port: 143 (unencrypted), 993 (SSL/TLS)"
-    echo "  • Purpose: RECEIVING email"
-    echo "  • Keeps emails on server"
-    echo "  • Synchronizes across multiple devices"
-    echo "  • Supports folders and server-side search"
-    echo "  • Preferred for modern email access"
-    
-    echo ""
-    echo "Email Flow:"
-    echo "  [Sender] --SMTP→ [Mail Server] --SMTP→ [Recipient Server]"
-    echo "                                         ↓"
-    echo "                          [Recipient] ←POP3/IMAP--"
-    
-    section "Email services on this system"
-    
-    echo -e "${BLUE}Checking for email service listeners:${NC}"
-    if ss -tln 2>/dev/null | grep -E ":25 |:587 |:465 |:110 |:995 |:143 |:993 "; then
-        ss -tln 2>/dev/null | grep -E ":25 |:587 |:465 |:110 |:995 |:143 |:993 "
-    else
-        echo "No email services detected on standard ports"
-    fi
-    
-    echo -e "\n${BLUE}Mail Transfer Agent (MTA) status:${NC}"
-    for mta in postfix sendmail exim4; do
-        if systemctl is-active $mta &>/dev/null; then
-            echo "  ✓ $mta is running"
+    cat << 'INFO'
+  FTP (File Transfer Protocol)
+    Ports   : 20 (data), 21 (control)
+    Security: Unencrypted — credentials sent in cleartext
+    Modes   : Active (server connects back), Passive (client initiates data)
+    Risk    : Eavesdropping, credential theft
+
+  SFTP (SSH File Transfer Protocol)
+    Port    : 22 (tunneled over SSH)
+    Security: Fully encrypted (session + data)
+    Auth    : Password or SSH key pairs
+    Note    : Not the same as FTP over SSH (different protocol)
+
+  FTPS (FTP Secure)
+    Ports   : 989/990 (explicit/implicit TLS)
+    Security: FTP wrapped in TLS
+
+  SCP (Secure Copy)
+    Port    : 22
+    Security: Encrypted via SSH
+INFO
+
+    section "FTP/SFTP/SSH Service Status"
+
+    for port_label in "21:FTP" "22:SSH/SFTP" "989:FTPS-data" "990:FTPS-ctrl"; do
+        local port="${port_label%%:*}" label="${port_label##*:}"
+        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+            status_line ok "${label} (port ${port}) — LISTENING"
+        else
+            status_line neutral "${label} (port ${port}) — not detected"
         fi
     done
-    
-    if ! systemctl is-active postfix &>/dev/null && \
-       ! systemctl is-active sendmail &>/dev/null && \
-       ! systemctl is-active exim4 &>/dev/null; then
-        echo "  ○ No common MTA services running"
+
+    echo
+    echo -e "${INFO}SSH server (SFTP capability):${NC}"
+    if systemctl is-active sshd &>/dev/null || systemctl is-active ssh &>/dev/null; then
+        status_line ok "SSH service is running"
+        if [[ -r /etc/ssh/sshd_config ]]; then
+            local sftp_line
+            sftp_line=$(grep -E "^Subsystem.*sftp" /etc/ssh/sshd_config 2>/dev/null)
+            if [[ -n "$sftp_line" ]]; then
+                status_line ok "SFTP subsystem: $sftp_line"
+            else
+                status_line warn "SFTP Subsystem line not found in sshd_config"
+            fi
+            echo
+            echo -e "${INFO}Relevant sshd_config settings:${NC}"
+            grep -E "^(PermitRootLogin|PasswordAuthentication|PubkeyAuthentication|Protocol)" \
+                /etc/ssh/sshd_config 2>/dev/null | while read -r line; do
+                echo -e "  ${MUTED}$line${NC}"
+            done
+        fi
+    else
+        status_line neutral "SSH service not running (SFTP unavailable)"
     fi
 }
 
-# DNS (Domain Name System)
+# Email Protocols
+check_email_protocols() {
+    header "Email Protocols — SMTP, POP3, IMAP"
+
+    cat << 'INFO'
+  SMTP   — Port 25 (server-to-server), 587 (STARTTLS), 465 (SMTPS)
+           Purpose: SENDING mail
+           Direction: push (client → server → server)
+
+  POP3   — Port 110 (plain), 995 (SSL)
+           Purpose: RECEIVING mail — downloads to device, often deletes from server
+           Best for: single-device, offline use
+
+  IMAP   — Port 143 (STARTTLS), 993 (SSL)
+           Purpose: RECEIVING mail — keeps mail on server, syncs across devices
+           Best for: multi-device, online use
+
+  Email Flow Diagram:
+    Sender's MUA → [SMTP:587] → Sender's MTA
+        → [SMTP:25] → Recipient's MTA
+        ← [IMAP:993 / POP3:995] ← Recipient's MUA
+INFO
+
+    section "Mail Service Status"
+    echo -e "${INFO}Listening email ports:${NC}"
+    local email_ports="25|587|465|110|995|143|993"
+    local found=0
+    while IFS= read -r line; do
+        echo -e "  ${CYAN}$line${NC}"
+        found=1
+    done < <(ss -tlnp 2>/dev/null | grep -E ":($email_ports) ")
+    [[ $found -eq 0 ]] && status_line neutral "No email services detected on standard ports"
+
+    echo
+    echo -e "${INFO}Mail Transfer Agent (MTA) process check:${NC}"
+    local any_mta=0
+    for mta in postfix sendmail exim4 dovecot; do
+        if systemctl is-active "$mta" &>/dev/null; then
+            status_line ok "${mta} is running"
+            any_mta=1
+        elif pgrep -x "$mta" &>/dev/null; then
+            status_line ok "${mta} running (not systemd)"
+            any_mta=1
+        fi
+    done
+    [[ $any_mta -eq 0 ]] && status_line neutral "No common MTA/MDA services detected"
+
+    section "SMTP Banner Grab"
+    read -rp "$(echo -e "  ${PROMPT}Enter SMTP server to probe [default: skip]:${NC} ")" smtp_host
+    if [[ -n "$smtp_host" ]] && (is_valid_host "$smtp_host" || is_valid_ip "$smtp_host"); then
+        echo -e "  ${MUTED}Grabbing SMTP banner from ${smtp_host}:25 ...${NC}"
+        timeout 5 bash -c "echo QUIT | nc -w3 '$smtp_host' 25 2>/dev/null" | head -5 \
+            || echo -e "  ${MUTED}Could not connect${NC}"
+    fi
+}
+
+# DNS
 check_dns() {
-    header "5. DNS - Domain Name System"
-    
-    echo -e "${GREEN}Understanding DNS and Record Types:${NC}\n"
-    
-    echo "DNS Purpose:"
-    echo "  • Translates domain names to IP addresses"
-    echo "  • Distributed, hierarchical database"
-    echo "  • Port: 53 (UDP for queries, TCP for zone transfers)"
-    
-    echo ""
-    echo "DNS Record Types:"
-    echo "  A      - Maps domain to IPv4 address"
-    echo "  AAAA   - Maps domain to IPv6 address"
-    echo "  CNAME  - Canonical name (alias to another domain)"
-    echo "  MX     - Mail exchange (email server)"
-    echo "  TXT    - Text records (SPF, DKIM, verification)"
-    echo "  NS     - Name server (authoritative servers)"
-    echo "  PTR    - Pointer (reverse DNS, IP to domain)"
-    echo "  SOA    - Start of Authority (zone information)"
-    
-    section "DNS configuration on this system"
-    
-    echo -e "${BLUE}DNS resolvers configured:${NC}"
-    cat /etc/resolv.conf 2>/dev/null | grep nameserver
-    
-    echo -e "\n${BLUE}Testing DNS record types:${NC}"
-    
-    test_domain="google.com"
-    
-    echo -e "\n${MAGENTA}A Record (IPv4):${NC}"
-    if command -v dig &> /dev/null; then
-        dig +short A $test_domain 2>/dev/null | head -3
-    elif command -v nslookup &> /dev/null; then
-        nslookup $test_domain 2>/dev/null | grep "Address:" | tail -n +2 | head -3
-    else
-        echo "dig/nslookup not available"
-    fi
-    
-    echo -e "\n${MAGENTA}AAAA Record (IPv6):${NC}"
-    if command -v dig &> /dev/null; then
-        dig +short AAAA $test_domain 2>/dev/null | head -3
-    else
-        echo "dig not available"
-    fi
-    
-    echo -e "\n${MAGENTA}MX Record (Mail servers):${NC}"
-    if command -v dig &> /dev/null; then
-        dig +short MX $test_domain 2>/dev/null | head -5
-    elif command -v nslookup &> /dev/null; then
-        nslookup -type=MX $test_domain 2>/dev/null | grep "mail exchanger"
-    else
-        echo "dig/nslookup not available"
-    fi
-    
-    echo -e "\n${MAGENTA}TXT Record:${NC}"
-    if command -v dig &> /dev/null; then
-        dig +short TXT $test_domain 2>/dev/null | head -3
-    else
-        echo "dig not available"
-    fi
-    
-    echo -e "\n${MAGENTA}NS Record (Name servers):${NC}"
-    if command -v dig &> /dev/null; then
-        dig +short NS $test_domain 2>/dev/null | head -5
-    else
-        echo "dig not available"
-    fi
-    
-    echo -e "\n${BLUE}DNS query demonstration:${NC}"
-    if command -v dig &> /dev/null; then
-        echo "Full DNS query for $test_domain:"
-        dig $test_domain 2>/dev/null | head -20
-    fi
-    
-    section "DNS caching"
-    
-    echo -e "${BLUE}Local DNS cache status:${NC}"
-    if systemctl is-active systemd-resolved &>/dev/null; then
-        echo "  ✓ systemd-resolved is running (local DNS cache)"
-        resolvectl statistics 2>/dev/null | head -10 || echo "  Statistics not available"
-    elif systemctl is-active dnsmasq &>/dev/null; then
-        echo "  ✓ dnsmasq is running (local DNS cache)"
-    else
-        echo "  ○ No local DNS caching service detected"
-    fi
-}
+    header "DNS — Domain Name System"
 
-# ICMP (ping, traceroute)
-check_icmp() {
-    header "6. ICMP - Internet Control Message Protocol"
-    
-    echo -e "${GREEN}Understanding ICMP:${NC}\n"
-    
-    echo "ICMP Purpose:"
-    echo "  • Network diagnostic and error reporting"
-    echo "  • Part of Internet Layer (Layer 3)"
-    echo "  • Does not use ports (it's not a transport protocol)"
-    echo "  • Carried directly in IP packets"
-    
-    echo ""
-    echo "Common ICMP Message Types:"
-    echo "  Type 0  - Echo Reply (ping response)"
-    echo "  Type 3  - Destination Unreachable"
-    echo "  Type 5  - Redirect"
-    echo "  Type 8  - Echo Request (ping)"
-    echo "  Type 11 - Time Exceeded (TTL expired, used in traceroute)"
-    
-    echo ""
-    echo "ICMP Tools:"
-    echo "  ping       - Tests reachability (Echo Request/Reply)"
-    echo "  traceroute - Traces packet path (uses TTL expiration)"
-    echo "  pathping   - Combines ping and traceroute"
-    
-    section "ICMP demonstrations"
-    
-    echo -e "${BLUE}Ping test (ICMP Echo):${NC}"
-    echo "Pinging 8.8.8.8 (Google DNS):"
-    ping -c 4 -W 2 8.8.8.8 2>/dev/null || echo "Ping failed or not available"
-    
-    echo -e "\n${BLUE}Ping with statistics:${NC}"
-    ping -c 5 -i 0.5 1.1.1.1 2>/dev/null | tail -5 || echo "Ping failed"
-    
-    echo -e "\n${BLUE}Traceroute (ICMP Time Exceeded):${NC}"
-    echo "Tracing route to google.com (max 10 hops):"
-    traceroute -m 10 -w 2 google.com 2>/dev/null | head -12 || echo "Traceroute not available"
-    
-    echo -e "\n${BLUE}ICMP statistics on this system:${NC}"
-    if [[ -f /proc/net/snmp ]]; then
-        echo "ICMP packet counts:"
-        cat /proc/net/snmp 2>/dev/null | grep "Icmp:" | head -2
+    cat << 'INFO'
+  DNS Record Types:
+    A      — IPv4 address
+    AAAA   — IPv6 address
+    CNAME  — Canonical name (alias)
+    MX     — Mail exchange server
+    TXT    — Arbitrary text (SPF, DKIM, verification)
+    NS     — Authoritative name servers
+    PTR    — Reverse DNS (IP → name)
+    SOA    — Start of Authority (zone info)
+    SRV    — Service location (used by SIP, XMPP, etc.)
+    CAA    — Certificate Authority Authorization
+
+  Hierarchy:  Root (.) → TLD (.com) → Domain (example.com) → Sub (www)
+  Port: 53 UDP (queries) / 53 TCP (zone transfers, large replies)
+INFO
+
+    section "Resolver Configuration"
+    echo -e "${INFO}Configured nameservers:${NC}"
+    grep nameserver /etc/resolv.conf 2>/dev/null | while read -r _ ip; do
+        echo -e "  ${CYAN}${ip}${NC}"
+    done
+
+    if systemctl is-active systemd-resolved &>/dev/null; then
+        status_line ok "systemd-resolved caching resolver is active"
+        resolvectl statistics 2>/dev/null | head -8 | sed 's/^/  /'
+    elif systemctl is-active dnsmasq &>/dev/null; then
+        status_line ok "dnsmasq caching resolver is active"
+    else
+        status_line neutral "No local caching resolver detected"
     fi
-    
-    section "ICMP security considerations"
-    
-    echo -e "${BLUE}Checking ICMP settings:${NC}"
-    if [[ -f /proc/sys/net/ipv4/icmp_echo_ignore_all ]]; then
-        ignore_ping=$(cat /proc/sys/net/ipv4/icmp_echo_ignore_all)
-        if [[ $ignore_ping -eq 0 ]]; then
-            echo "  ○ ICMP Echo (ping) responses: ENABLED"
+
+    section "Interactive DNS Lookup"
+    read -rp "$(echo -e "  ${PROMPT}Enter domain to query [default: cloudflare.com]:${NC} ")" q_domain
+    q_domain="${q_domain:-cloudflare.com}"
+    if ! (is_valid_host "$q_domain"); then
+        log_warning "Invalid domain — using cloudflare.com"
+        q_domain="cloudflare.com"
+    fi
+
+    if cmd_exists dig; then
+        for rtype in A AAAA MX NS TXT SOA; do
+            echo
+            echo -e "  ${GOLD}${BOLD}${rtype} records for ${q_domain}:${NC}"
+            dig +short "$rtype" "$q_domain" 2>/dev/null \
+                | sed 's/^/    /' \
+                || echo -e "    ${MUTED}(none)${NC}"
+        done
+
+        section "Reverse DNS Lookup"
+        read -rp "$(echo -e "  ${PROMPT}Enter IP for reverse lookup [default: 1.1.1.1]:${NC} ")" r_ip
+        r_ip="${r_ip:-1.1.1.1}"
+        if is_valid_ip "$r_ip"; then
+            echo -e "  ${INFO}PTR record for ${r_ip}:${NC}"
+            dig +short -x "$r_ip" 2>/dev/null | sed 's/^/    /' || echo -e "    ${MUTED}(none)${NC}"
         else
-            echo "  ✓ ICMP Echo (ping) responses: DISABLED (security)"
+            log_warning "Invalid IP — skipping"
+        fi
+
+        section "DNS Propagation Check"
+        read -rp "$(echo -e "  ${PROMPT}Domain to check across resolvers [default: ${q_domain}]:${NC} ")" prop_domain
+        prop_domain="${prop_domain:-$q_domain}"
+        local resolvers=("8.8.8.8:Google" "1.1.1.1:Cloudflare" "9.9.9.9:Quad9" "208.67.222.222:OpenDNS")
+        echo
+        for rs in "${resolvers[@]}"; do
+            local ip="${rs%%:*}" name="${rs##*:}"
+            local result
+            result=$(dig +short A "$prop_domain" "@$ip" 2>/dev/null | head -1)
+            printf "  ${MUTED}%-14s${NC} ${BOLD}%-12s${NC} → ${CYAN}%s${NC}\n" \
+                "$ip" "($name)" "${result:-no answer}"
+        done
+    else
+        log_warning "dig not available — install dnsutils for full DNS queries"
+        if cmd_exists nslookup; then
+            nslookup "$q_domain" 2>/dev/null | head -10 | sed 's/^/  /'
         fi
     fi
-    
-    if [[ -f /proc/sys/net/ipv4/icmp_ratelimit ]]; then
-        rate=$(cat /proc/sys/net/ipv4/icmp_ratelimit)
-        echo "  ICMP rate limit: $rate ms"
+
+    section "Zone Transfer Attempt (Educational)"
+    echo -e "  ${MUTED}Attempting AXFR zone transfer (usually blocked — for learning):${NC}"
+    if cmd_exists dig; then
+        local ns
+        ns=$(dig +short NS "$q_domain" 2>/dev/null | head -1)
+        if [[ -n "$ns" ]]; then
+            echo -e "  ${MUTED}Using NS: ${ns}${NC}"
+            dig AXFR "$q_domain" "@${ns}" 2>/dev/null | head -20 \
+                || echo -e "  ${SUCCESS}Transfer refused (expected — server is properly secured)${NC}"
+        fi
     fi
 }
 
-# MAIN EXECUTION
-echo -e "${CYAN}"
-cat << "EOF"
-╔══════════════════════════════════════════════════════════════════╗
-║                   CORE PROTOCOLS CHECKER                         ║
-║                                                                  ║
-║  Exploring: TCP/UDP, HTTP, FTP, Email, DNS, ICMP                ║
-╚══════════════════════════════════════════════════════════════════╝
-EOF
-echo -e "${NC}"
+# ICMP
+check_icmp() {
+    header "ICMP — Internet Control Message Protocol"
 
-check_tcp_udp
-check_http_protocols
-check_ftp_protocols
-check_email_protocols
-check_dns
-check_icmp
+    cat << 'INFO'
+  ICMP is a Network-layer (Layer 3) protocol — no ports.
+  Carried directly in IP packets (Protocol 1).
 
-echo -e "\n${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✓ Core Protocols Check Complete!                           ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}\n"
+  Key Message Types:
+    Type 0  — Echo Reply          (ping response)
+    Type 3  — Destination Unreachable
+              Code 0: Network unreachable
+              Code 1: Host unreachable
+              Code 3: Port unreachable
+    Type 5  — Redirect
+    Type 8  — Echo Request        (ping)
+    Type 11 — Time Exceeded       (TTL expired — traceroute)
+    Type 12 — Parameter Problem
+INFO
+
+    section "Interactive ICMP Tests"
+    read -rp "$(echo -e "  ${PROMPT}Enter target host/IP [default: 8.8.8.8]:${NC} ")" icmp_target
+    icmp_target="${icmp_target:-8.8.8.8}"
+    if ! (is_valid_ip "$icmp_target" || is_valid_host "$icmp_target"); then
+        log_warning "Invalid input — using 8.8.8.8"
+        icmp_target="8.8.8.8"
+    fi
+
+    echo
+    echo -e "${INFO}Ping test (5 packets) to ${icmp_target}:${NC}"
+    ping -c 5 -i 0.4 "$icmp_target" 2>/dev/null || log_warning "Ping failed or blocked"
+
+    echo
+    echo -e "${INFO}Flood ping check (0.2s interval, 10 packets — low rate):${NC}"
+    ping -c 10 -i 0.2 -q "$icmp_target" 2>/dev/null \
+        | tail -3 || echo -e "  ${MUTED}Unavailable${NC}"
+
+    section "Traceroute Analysis"
+    read -rp "$(echo -e "  ${PROMPT}Traceroute target [default: ${icmp_target}]:${NC} ")" tr_target
+    tr_target="${tr_target:-$icmp_target}"
+    echo -e "  ${INFO}Tracing route to ${tr_target} (max 15 hops):${NC}"
+    if cmd_exists traceroute; then
+        traceroute -m 15 -w 2 "$tr_target" 2>/dev/null
+    elif cmd_exists tracepath; then
+        tracepath -n "$tr_target" 2>/dev/null | head -20
+    else
+        log_warning "traceroute/tracepath not available"
+    fi
+
+    section "ICMP System Settings"
+    kv "Ignore all pings" "$(cat /proc/sys/net/ipv4/icmp_echo_ignore_all 2>/dev/null || echo 'N/A')"
+    kv "Ignore broadcast pings" "$(cat /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts 2>/dev/null || echo 'N/A')"
+    kv "ICMP rate limit (ms)" "$(cat /proc/sys/net/ipv4/icmp_ratelimit 2>/dev/null || echo 'N/A')"
+    kv "Rate mask" "$(cat /proc/sys/net/ipv4/icmp_ratemask 2>/dev/null || echo 'N/A')"
+
+    echo
+    echo -e "${INFO}ICMP packet counters (/proc/net/snmp):${NC}"
+    if [[ -r /proc/net/snmp ]]; then
+        paste <(grep "^Icmp:" /proc/net/snmp | head -1 | tr ' ' '\n') \
+              <(grep "^Icmp:" /proc/net/snmp | tail -1 | tr ' ' '\n') \
+              | tail -n +2 | awk '{printf "  %-28s %s\n", $1, $2}'
+    fi
+}
+
+#  INTERACTIVE MENU
+show_menu() {
+    clear
+    show_banner
+    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD_CYAN}║         Core Protocols — Interactive         ║${NC}"
+    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════╝${NC}"
+    echo
+    echo -e "  ${GREEN} 1.${NC}  TCP vs UDP"
+    echo -e "  ${GREEN} 2.${NC}  HTTP / HTTPS"
+    echo -e "  ${GREEN} 3.${NC}  FTP / SFTP"
+    echo -e "  ${GREEN} 4.${NC}  Email Protocols (SMTP, POP3, IMAP)"
+    echo -e "  ${GREEN} 5.${NC}  DNS (all record types + propagation)"
+    echo -e "  ${GREEN} 6.${NC}  ICMP (ping, traceroute)"
+    echo -e "  ${GOLD}  A.${NC}  Run ALL sections"
+    echo -e "  ${RED}  0.${NC}  Back"
+    echo
+}
+
+main() {
+    while true; do
+        show_menu
+        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
+        case "$choice" in
+            1) check_tcp_udp ;;
+            2) check_http_protocols ;;
+            3) check_ftp_protocols ;;
+            4) check_email_protocols ;;
+            5) check_dns ;;
+            6) check_icmp ;;
+            [aA])
+                check_tcp_udp
+                check_http_protocols
+                check_ftp_protocols
+                check_email_protocols
+                check_dns
+                check_icmp
+                ;;
+            0) return 0 ;;
+            *) log_warning "Invalid choice" ;;
+        esac
+        pause
+    done
+}
+
+main

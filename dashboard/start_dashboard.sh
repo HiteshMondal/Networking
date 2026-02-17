@@ -10,7 +10,7 @@ else
     # Fallback if sourced
     DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
 fi
-PROJECT_ROOT="$(dirname "$DASHBOARD_DIR")"
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_DIR="$PROJECT_ROOT/scripts"
 LOG_DIR="$PROJECT_ROOT/logs"
 OUTPUT_DIR="$PROJECT_ROOT/output"
