@@ -48,6 +48,7 @@ log() {
 #  DISPLAY HELPERS
 
 show_banner() {
+    clear
     echo -e "${NC}"
     echo -e "${CYAN}${BOLD}════════════════════════════════════════════════════════════════${NC}"
     echo -e "${CYAN}${BOLD}${NC}                                                                ${CYAN}${BOLD}${NC}"

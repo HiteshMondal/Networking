@@ -1,397 +1,380 @@
 #!/usr/bin/env python3
-"""
-Cybersecurity Automation Toolkit — Dashboard Server  (server.py)
+"""CyberDeck Dashboard Server v3 — system stats, email alerts, social share support."""
 
-Improvements over the original:
-  * Path traversal prevention uses os.path.realpath + prefix check instead of
-    the naive str.replace('..', '') which is bypassable (e.g. '....//').
-  * File serving is restricted to the logs/ and output/ directories only —
-    requests for arbitrary project files are rejected with 403.
-  * Content-Security-Policy and other security headers on every response.
-  * CORS header is no longer '*' in production; uses ALLOWED_ORIGIN env var.
-  * /api/file requires a 'name' parameter (filename only, no path component)
-    and a 'dir' parameter ('logs' or 'outputs') rather than accepting a raw
-    file-system path from the client.
-  * Log status heuristic adds a fast-path: exit-code check happens before the
-    full content scan so failure is detected even in truncated logs.
-  * Structured startup banner and per-request logging with client IP.
-  * Graceful shutdown on SIGINT / SIGTERM with informative message.
-  * Python version guard at startup (requires 3.8+).
-  * TCPServer configured with allow_reuse_address=True to prevent
-    "Address already in use" on rapid restart.
-"""
-
-import http.server
-import socketserver
-import json
-import os
-import re
-import signal
-import sys
+import http.server, socketserver, json, os, re, signal, sys, smtplib
+from collections import defaultdict
 from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-# ─── Configuration ────────────────────────────────────────────────────────────
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
+# ── Config ─────────────────────────────────────────────────────────────────────
 PORT           = int(os.environ.get('DASHBOARD_PORT', '8000'))
 DASHBOARD_DIR  = Path(__file__).resolve().parent
 PROJECT_ROOT   = DASHBOARD_DIR.parent
 LOGS_DIR       = PROJECT_ROOT / 'logs'
 OUTPUT_DIR     = PROJECT_ROOT / 'output'
+ALLOWED_ORIGIN = os.environ.get('DASHBOARD_ORIGIN', '*')
 
-# Restrict CORS to a specific origin in production; keep '*' for localhost dev.
-ALLOWED_ORIGIN = os.environ.get('DASHBOARD_ORIGIN', 'http://localhost')
+SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_PASS = os.environ.get('SMTP_PASS', '')
+SMTP_FROM = os.environ.get('SMTP_FROM', SMTP_USER)
 
-# Icon mapping for output file types
-_ICON_MAP: dict[str, str] = {
-    '.txt':  '📄', '.log': '📝', '.json': '🔍',
-    '.html': '🌐', '.csv': '📊', '.xml':  '📋',
-    '.zip':  '📦', '.tar': '📦', '.gz':   '📦',
-    '.pdf':  '📕',
+_alert_cfg = {
+    'cpu_warn': 70.0, 'cpu_crit': 90.0,
+    'mem_warn': 75.0, 'mem_crit': 90.0,
+    'disk_warn': 80.0, 'disk_crit': 95.0,
+    'email_to': '', 'email_notify': False,
 }
 
-# ─── Python version guard ─────────────────────────────────────────────────────
+_ICON_MAP = {'.txt':'📄','.log':'📝','.json':'🔍','.html':'🌐',
+             '.csv':'📊','.xml':'📋','.zip':'📦','.tar':'📦','.gz':'📦','.pdf':'📕'}
+
+_CATEGORY_MAP = {
+    'detect_suspicious_net_linux':'network','secure_system':'security','revert_security':'security',
+    'system_info':'system','forensic_collect':'forensic','web_recon':'recon',
+    'network_tools':'network','core_protocols':'network','ip_addressing':'network',
+    'network_master':'network','networking_basics':'network','switching_routing':'network',
+    'security_fundamentals':'security',
+}
+
 if sys.version_info < (3, 8):
-    sys.exit('Error: Python 3.8 or later is required.')
+    sys.exit('Python 3.8+ required.')
 
 
-# ─── Request Handler ──────────────────────────────────────────────────────────
 class DashboardHandler(http.server.SimpleHTTPRequestHandler):
-    """Serves the static dashboard and a small JSON API."""
+    def __init__(self, *a, **kw):
+        super().__init__(*a, directory=str(DASHBOARD_DIR), **kw)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(DASHBOARD_DIR), **kwargs)
+    def do_GET(self):
+        p, qs = urlparse(self.path), parse_qs(urlparse(self.path).query)
+        {
+            '/api/dashboard-data': self._serve_dashboard_data,
+            '/api/file':           lambda: self._serve_file(qs),
+            '/api/search':         lambda: self._serve_search(qs),
+            '/api/tail':           lambda: self._serve_tail(qs),
+            '/api/metrics':        self._serve_metrics,
+            '/api/categories':     self._serve_categories,
+            '/api/system-stats':   self._serve_system_stats,
+            '/api/alert-settings': lambda: self._json_response(200, {**_alert_cfg, 'smtp_configured': bool(SMTP_USER and SMTP_PASS)}),
+        }.get(p.path, super().do_GET)()
 
-    # ── Routing ───────────────────────────────────────────────────────────────
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        path   = parsed.path
+    def do_POST(self):
+        p = urlparse(self.path).path
+        length = int(self.headers.get('Content-Length', 0))
+        try:    payload = json.loads(self.rfile.read(length)) if length else {}
+        except: payload = {}
+        if p == '/api/notify-email':   self._handle_notify_email(payload)
+        elif p == '/api/alert-settings': self._handle_alert_settings(payload)
+        else:   self._send_error(404, 'Not found')
 
-        if path == '/api/dashboard-data':
-            self._serve_dashboard_data()
-        elif path == '/api/file':
-            self._serve_file(parse_qs(parsed.query))
-        else:
-            # Static files — let SimpleHTTPRequestHandler handle it.
-            # Override directory to DASHBOARD_DIR prevents escaping to parent.
-            super().do_GET()
+    def do_OPTIONS(self):
+        self.send_response(204); self._add_sec(); self.end_headers()
 
-    # ── Security headers (added to every response) ────────────────────────────
-    def _add_security_headers(self) -> None:
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('X-Frame-Options', 'DENY')
-        self.send_header('Referrer-Policy', 'strict-origin-when-cross-origin')
-        self.send_header(
-            'Content-Security-Policy',
-            "default-src 'self'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "script-src 'self'; "
-            "connect-src 'self'; "
-            "img-src 'self' data:; "
-            "frame-ancestors 'none';"
-        )
-        # Only allow CORS for the API endpoints (not static files)
-        self.send_header('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+    # ── Security headers ──────────────────────────────────────────────────────
+    def _add_sec(self):
+        for k, v in [
+            ('X-Content-Type-Options','nosniff'), ('X-Frame-Options','DENY'),
+            ('Referrer-Policy','strict-origin-when-cross-origin'),
+            ('Access-Control-Allow-Origin', ALLOWED_ORIGIN),
+            ('Access-Control-Allow-Methods','GET,POST,OPTIONS'),
+            ('Access-Control-Allow-Headers','Content-Type'),
+            ('Content-Security-Policy',
+             "default-src 'self';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;"
+             "font-src 'self' https://fonts.gstatic.com;script-src 'self' 'unsafe-inline';"
+             "connect-src 'self';img-src 'self' data:;frame-ancestors 'none';"),
+        ]: self.send_header(k, v)
+
+    def _add_security_headers(self): self._add_sec()
 
     # ── /api/dashboard-data ───────────────────────────────────────────────────
-    def _serve_dashboard_data(self) -> None:
+    def _serve_dashboard_data(self):
         try:
-            data = {
-                'logs':    self._get_log_files(),
-                'outputs': self._get_output_files(),
-                'history': self._get_execution_history(),
-                'stats':   self._calculate_stats(),
-            }
-            body = json.dumps(data, indent=2).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(body)))
-            self._add_security_headers()
-            self.end_headers()
-            self.wfile.write(body)
-        except Exception as exc:
-            self._send_error(500, f'Error generating dashboard data: {exc}')
+            h = self._get_history()
+            self._json_response(200, {'logs': self._get_logs(), 'outputs': self._get_outputs(),
+                                       'history': h, 'stats': self._calc_stats(h), 'timeline': h[:30]})
+        except Exception as e:
+            self._send_error(500, str(e))
 
     # ── /api/file ─────────────────────────────────────────────────────────────
-    def _serve_file(self, qs: dict) -> None:
-        """
-        Serve a file from logs/ or output/ for download or inline viewing.
-
-        Query parameters:
-          dir  — 'logs' | 'outputs'  (required)
-          name — bare filename only  (required)
-        """
-        # -- Validate 'dir' parameter -----------------------------------------
-        raw_dir = qs.get('dir', [''])[0]
-        if raw_dir == 'logs':
-            base_dir = LOGS_DIR
-        elif raw_dir == 'outputs':
-            base_dir = OUTPUT_DIR
-        else:
-            self._send_error(400, "Parameter 'dir' must be 'logs' or 'outputs'.")
-            return
-
-        # -- Validate 'name' parameter ----------------------------------------
-        raw_name = qs.get('name', [''])[0]
-        if not raw_name:
-            self._send_error(400, "Missing required parameter 'name'.")
-            return
-
-        # Strip any path components the client might have injected
-        safe_name = Path(raw_name).name
-        if not safe_name or safe_name != raw_name:
-            # The name contained path separators — reject it.
-            self._send_error(400, "Parameter 'name' must be a bare filename (no path separators).")
-            return
-
-        # -- Resolve and verify the final path --------------------------------
-        candidate = base_dir / safe_name
-        try:
-            resolved = candidate.resolve()
-        except OSError as exc:
-            self._send_error(400, f'Invalid filename: {exc}')
-            return
-
-        # Ensure the resolved path is still inside the permitted directory.
-        # This is the correct defence against symlink-based traversal.
-        permitted_root = base_dir.resolve()
-        try:
-            resolved.relative_to(permitted_root)
-        except ValueError:
-            self._send_error(403, 'Access denied: path outside permitted directory.')
-            return
-
-        if not resolved.is_file():
-            self._send_error(404, 'File not found.')
-            return
-
-        # -- Serve the file ---------------------------------------------------
-        try:
-            content = resolved.read_bytes()
-        except PermissionError:
-            self._send_error(403, 'Permission denied.')
-            return
-        except OSError as exc:
-            self._send_error(500, f'Error reading file: {exc}')
-            return
-
-        suffix = resolved.suffix.lower()
-        content_types = {
-            '.log':  'text/plain; charset=utf-8',
-            '.txt':  'text/plain; charset=utf-8',
-            '.json': 'application/json; charset=utf-8',
-            '.html': 'text/html; charset=utf-8',
-            '.csv':  'text/csv; charset=utf-8',
-            '.xml':  'application/xml; charset=utf-8',
-        }
-        ct = content_types.get(suffix, 'application/octet-stream')
-
+    def _serve_file(self, qs):
+        rd, rn = qs.get('dir',[''])[0], qs.get('name',[''])[0]
+        bd = LOGS_DIR if rd == 'logs' else OUTPUT_DIR if rd == 'outputs' else None
+        if not bd: return self._send_error(400, "dir must be 'logs' or 'outputs'")
+        if not rn: return self._send_error(400, "Missing 'name'")
+        safe = Path(rn).name
+        if safe != rn: return self._send_error(400, 'name must be bare filename')
+        fp = (bd / safe).resolve()
+        try: fp.relative_to(bd.resolve())
+        except ValueError: return self._send_error(403, 'Access denied')
+        if not fp.is_file(): return self._send_error(404, 'Not found')
+        try: content = fp.read_bytes()
+        except OSError as e: return self._send_error(500, str(e))
+        ct = {'.log':'text/plain;charset=utf-8','.txt':'text/plain;charset=utf-8',
+              '.json':'application/json;charset=utf-8','.html':'text/html;charset=utf-8',
+              '.csv':'text/csv;charset=utf-8','.xml':'application/xml;charset=utf-8'}.get(fp.suffix.lower(),'application/octet-stream')
         self.send_response(200)
         self.send_header('Content-Type', ct)
         self.send_header('Content-Length', str(len(content)))
-        # Suggest a download filename for binary types
         if ct == 'application/octet-stream':
-            self.send_header('Content-Disposition', f'attachment; filename="{safe_name}"')
-        self._add_security_headers()
-        self.end_headers()
-        self.wfile.write(content)
+            self.send_header('Content-Disposition', f'attachment;filename="{safe}"')
+        self._add_sec(); self.end_headers(); self.wfile.write(content)
 
-    # ── File listing helpers ──────────────────────────────────────────────────
-    def _get_log_files(self) -> list[dict]:
-        logs: list[dict] = []
-        if not LOGS_DIR.is_dir():
-            return logs
+    # ── /api/search ───────────────────────────────────────────────────────────
+    def _serve_search(self, qs):
+        q = qs.get('q',[''])[0].strip()
+        limit = min(int((qs.get('limit',['50'])[0]) or 50), 200)
+        if len(q) < 2: return self._json_response(200, {'results':[],'query':q,'total':0})
+        pat, results = re.compile(re.escape(q), re.I), []
+        if LOGS_DIR.is_dir():
+            for f in sorted(LOGS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+                if f.suffix != '.log' or not f.is_file(): continue
+                try:
+                    for no, line in enumerate(f.read_bytes()[:512_000].decode('utf-8',errors='replace').splitlines(),1):
+                        if pat.search(line):
+                            results.append({'file':f.name,'dir':'logs','line':no,'content':line.strip()[:200],'match':q})
+                            if len(results) >= limit: break
+                except OSError: continue
+                if len(results) >= limit: break
+        self._json_response(200, {'results':results,'query':q,'total':len(results)})
 
-        for entry in LOGS_DIR.iterdir():
-            if entry.suffix != '.log' or not entry.is_file():
-                continue
-            stat = entry.stat()
-            m    = re.match(r'(.+?)_(\d{8}_\d{6})\.log$', entry.name)
-            logs.append({
-                'name':      entry.name,
-                'script':    m.group(1) if m else entry.stem,
-                'timestamp': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                'size':      stat.st_size,
-                # Expose only dir+name, not full absolute path
-                'dir':       'logs',
-                'fileParam': entry.name,
-            })
+    # ── /api/tail ─────────────────────────────────────────────────────────────
+    def _serve_tail(self, qs):
+        rd, rn = qs.get('dir',['logs'])[0], qs.get('name',[''])[0]
+        n = min(int((qs.get('lines',['100'])[0]) or 100), 1000)
+        bd = LOGS_DIR if rd == 'logs' else OUTPUT_DIR
+        if not rn: return self._send_error(400, "Missing 'name'")
+        fp = (bd / Path(rn).name).resolve()
+        try: fp.relative_to(bd.resolve())
+        except ValueError: return self._send_error(403, 'Access denied')
+        if not fp.is_file(): return self._send_error(404, 'Not found')
+        try:
+            lines = fp.read_bytes().decode('utf-8',errors='replace').splitlines()
+            st = fp.stat()
+            self._json_response(200, {'lines':lines[-n:],'total':len(lines),'returned':min(n,len(lines)),'size':st.st_size,'mtime':st.st_mtime,'name':fp.name})
+        except OSError as e: self._send_error(500, str(e))
 
-        logs.sort(key=lambda x: x['timestamp'], reverse=True)
-        return logs
+    # ── /api/metrics ──────────────────────────────────────────────────────────
+    def _serve_metrics(self):
+        h = self._get_history()
+        by_day, by_cat, durs = defaultdict(lambda:{'success':0,'error':0,'warning':0,'total':0}), defaultdict(int), []
+        for x in h:
+            try: by_day[x['timestamp'][:10]][x.get('status','unknown')] += 1; by_day[x['timestamp'][:10]]['total'] += 1
+            except: pass
+            by_cat[x.get('category','other')] += 1
+            m = re.match(r'(\d+)m\s*(\d+)s', x.get('duration',''))
+            if m: durs.append(int(m.group(1))*60+int(m.group(2)))
+        ls = sum(f.stat().st_size for f in LOGS_DIR.iterdir() if f.is_file()) if LOGS_DIR.is_dir() else 0
+        os_ = sum(f.stat().st_size for f in OUTPUT_DIR.iterdir() if f.is_file()) if OUTPUT_DIR.is_dir() else 0
+        self._json_response(200, {
+            'by_day': dict(by_day), 'by_category': dict(by_cat),
+            'avg_duration_s': int(sum(durs)/len(durs)) if durs else 0,
+            'disk': {'logs_bytes':ls,'outputs_bytes':os_,'total_bytes':ls+os_},
+            'success_rate': round(sum(1 for x in h if x['status']=='success')/len(h)*100,1) if h else 0,
+        })
 
-    def _get_output_files(self) -> list[dict]:
-        outputs: list[dict] = []
-        if not OUTPUT_DIR.is_dir():
-            return outputs
+    def _serve_categories(self):
+        self._json_response(200, {'categories': sorted({h.get('category','other') for h in self._get_history()})})
 
-        for entry in OUTPUT_DIR.iterdir():
-            if not entry.is_file():
-                continue
-            stat = entry.stat()
-            outputs.append({
-                'name':      entry.name,
-                'icon':      _ICON_MAP.get(entry.suffix.lower(), '📄'),
-                'timestamp': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                'size':      stat.st_size,
-                'dir':       'outputs',
-                'fileParam': entry.name,
-            })
-
-        outputs.sort(key=lambda x: x['timestamp'], reverse=True)
-        return outputs
-
-    def _get_execution_history(self) -> list[dict]:
-        history: list[dict] = []
-        if not LOGS_DIR.is_dir():
-            return history
-
-        for entry in LOGS_DIR.iterdir():
-            if entry.suffix != '.log' or not entry.is_file():
-                continue
-            m = re.match(r'(.+?)_(\d{8}_\d{6})\.log$', entry.name)
-            if not m:
-                continue
-
-            script_name = m.group(1)
+    # ── /api/system-stats (NEW) ───────────────────────────────────────────────
+    def _serve_system_stats(self):
+        if not HAS_PSUTIL:
+            return self._json_response(200, {'available': False,
+                'message': 'Run: pip install psutil --break-system-packages'})
+        try:
+            cpu  = psutil.cpu_percent(interval=0.5)
+            mem  = psutil.virtual_memory()
+            disk = psutil.disk_usage('/')
+            net  = psutil.net_io_counters()
+            temps = {}
             try:
-                ts = datetime.strptime(m.group(2), '%Y%m%d_%H%M%S')
-            except ValueError:
-                ts = datetime.fromtimestamp(entry.stat().st_mtime)
+                for name, entries in (psutil.sensors_temperatures() or {}).items():
+                    if entries: temps[name] = round(entries[0].current, 1)
+            except: pass
 
-            status, duration = self._parse_log_status(entry)
-            history.append({
-                'name':      script_name,
-                'category':  self._categorise_script(script_name),
-                'status':    status,
-                'duration':  duration,
-                'timestamp': ts.isoformat(),
-            })
+            def lvl(v, w, c): return 'critical' if v >= c else 'warning' if v >= w else 'ok'
+            s = _alert_cfg
+            stats = {
+                'available': True, 'ts': datetime.now().isoformat(),
+                'cpu':    {'percent': round(cpu,1), 'count': psutil.cpu_count(), 'level': lvl(cpu, s['cpu_warn'], s['cpu_crit'])},
+                'memory': {'percent': round(mem.percent,1), 'used_mb': round(mem.used/1_048_576),
+                           'total_mb': round(mem.total/1_048_576), 'avail_mb': round(mem.available/1_048_576),
+                           'level': lvl(mem.percent, s['mem_warn'], s['mem_crit'])},
+                'disk':   {'percent': round(disk.percent,1), 'used_gb': round(disk.used/1_073_741_824,2),
+                           'total_gb': round(disk.total/1_073_741_824,2), 'free_gb': round(disk.free/1_073_741_824,2),
+                           'level': lvl(disk.percent, s['disk_warn'], s['disk_crit'])},
+                'network':{'bytes_sent': net.bytes_sent, 'bytes_recv': net.bytes_recv,
+                           'packets_sent': net.packets_sent, 'packets_recv': net.packets_recv,
+                           'errin': net.errin, 'errout': net.errout,
+                           'level': 'critical' if (net.errin+net.errout) > 100 else 'ok'},
+                'temperatures': temps,
+                'thresholds': {k:v for k,v in s.items() if k not in ('email_to','email_notify')},
+            }
+            # Auto-alert on critical
+            if s.get('email_notify') and s.get('email_to'):
+                crits = [k for k in ('cpu','memory','disk') if stats[k]['level']=='critical']
+                if crits: self._auto_alert(stats, crits)
+            self._json_response(200, stats)
+        except Exception as e:
+            self._send_error(500, str(e))
 
-        history.sort(key=lambda x: x['timestamp'], reverse=True)
-        return history
+    # ── /api/alert-settings POST ──────────────────────────────────────────────
+    def _handle_alert_settings(self, payload):
+        allowed = {'cpu_warn','cpu_crit','mem_warn','mem_crit','disk_warn','disk_crit','email_to','email_notify'}
+        for k, v in payload.items():
+            if k not in allowed: continue
+            if k == 'email_to' and isinstance(v, str): _alert_cfg[k] = v.strip()
+            elif k == 'email_notify' and isinstance(v, bool): _alert_cfg[k] = v
+            elif k.endswith(('_warn','_crit')) and isinstance(v, (int,float)): _alert_cfg[k] = float(v)
+        self._json_response(200, {'ok': True, 'settings': dict(_alert_cfg)})
 
-    # ── Log analysis ──────────────────────────────────────────────────────────
+    # ── /api/notify-email POST ────────────────────────────────────────────────
+    def _handle_notify_email(self, payload):
+        to = payload.get('to','').strip()
+        if not to: return self._send_error(400, "Missing 'to'")
+        if not (SMTP_USER and SMTP_PASS): return self._send_error(503, 'SMTP not configured. Set SMTP_USER and SMTP_PASS env vars.')
+        ok, msg = self._smtp_send(to, payload.get('subject','CyberDeck Notification'), payload.get('body',''))
+        if ok: self._json_response(200, {'sent': True, 'to': to})
+        else:  self._send_error(500, f'Email failed: {msg}')
+
+    def _smtp_send(self, to, subject, body):
+        try:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'], msg['From'], msg['To'] = subject, SMTP_FROM or SMTP_USER, to
+            msg.attach(MIMEText(body, 'plain'))
+            msg.attach(MIMEText(
+                f'<html><body style="font-family:monospace;background:#0a0d14;color:#e2eaf7;padding:24px">'
+                f'<h2 style="color:#38bdf8">⬡ CyberDeck</h2>'
+                f'<pre style="background:#161c28;padding:16px;border-left:3px solid #38bdf8;border-radius:8px">{body}</pre>'
+                f'<p style="color:#546278;font-size:12px">Networking & Cybersecurity Automation Toolkit</p></body></html>', 'html'))
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as s:
+                s.ehlo(); s.starttls(); s.login(SMTP_USER, SMTP_PASS)
+                s.sendmail(SMTP_FROM or SMTP_USER, to, msg.as_string())
+            return True, 'ok'
+        except Exception as e:
+            return False, str(e)
+
+    def _auto_alert(self, stats, crits):
+        lines = [f'⚠ CRITICAL — {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n']
+        for r in crits:
+            lines.append(f'  {r.upper()}: {stats[r].get("percent","?")}%  [CRITICAL]')
+        self._smtp_send(_alert_cfg['email_to'], f'CyberDeck CRITICAL — {", ".join(crits)}', '\n'.join(lines))
+
+    # ── File helpers ──────────────────────────────────────────────────────────
+    def _get_logs(self):
+        if not LOGS_DIR.is_dir(): return []
+        logs = []
+        for e in LOGS_DIR.iterdir():
+            if e.suffix != '.log' or not e.is_file(): continue
+            m = re.match(r'(.+?)_(\d{8}_\d{6})\.log$', e.name)
+            stem = m.group(1) if m else e.stem
+            kws = ('network','protocol','addressing','basics','switching','security_fund','master')
+            st = e.stat()
+            logs.append({'name':e.name,'script':stem,'timestamp':datetime.fromtimestamp(st.st_mtime).isoformat(),
+                         'size':st.st_size,'dir':'logs','name_param':e.name,
+                         'source':'tool' if stem in _CATEGORY_MAP and any(k in stem for k in kws) else 'script',
+                         'category':_CATEGORY_MAP.get(stem,'other')})
+        return sorted(logs, key=lambda x: x['timestamp'], reverse=True)
+
+    def _get_outputs(self):
+        if not OUTPUT_DIR.is_dir(): return []
+        out = []
+        for e in OUTPUT_DIR.iterdir():
+            if not e.is_file(): continue
+            st = e.stat()
+            out.append({'name':e.name,'icon':_ICON_MAP.get(e.suffix.lower(),'📄'),
+                        'timestamp':datetime.fromtimestamp(st.st_mtime).isoformat(),
+                        'size':st.st_size,'dir':'outputs','name_param':e.name,'ext':e.suffix.lower()})
+        return sorted(out, key=lambda x: x['timestamp'], reverse=True)
+
+    def _get_history(self):
+        if not LOGS_DIR.is_dir(): return []
+        hist = []
+        for e in LOGS_DIR.iterdir():
+            if e.suffix != '.log' or not e.is_file() or e.name == 'dashboard.log': continue
+            m = re.match(r'(.+?)_(\d{8}_\d{6})\.log$', e.name)
+            if not m: continue
+            name = m.group(1)
+            try:    ts = datetime.strptime(m.group(2), '%Y%m%d_%H%M%S')
+            except: ts = datetime.fromtimestamp(e.stat().st_mtime)
+            status, dur = self._parse_log(e)
+            hist.append({'name':name,'log_name':e.name,'category':self._cat(name),
+                         'status':status,'duration':dur,'timestamp':ts.isoformat(),'size':e.stat().st_size})
+        return sorted(hist, key=lambda x: x['timestamp'], reverse=True)
+
     @staticmethod
-    def _categorise_script(name: str) -> str:
+    def _cat(name):
+        if name in _CATEGORY_MAP: return _CATEGORY_MAP[name]
         n = name.lower()
-        if 'net' in n or 'network' in n:   return 'network'
-        if 'secure' in n or 'security' in n: return 'security'
-        if 'forensic' in n:                return 'forensic'
-        if 'recon' in n or 'web' in n:     return 'recon'
+        if any(k in n for k in ('net','network','protocol','routing','switching')): return 'network'
+        if any(k in n for k in ('secure','security')): return 'security'
+        if 'forensic' in n: return 'forensic'
+        if any(k in n for k in ('recon','web')): return 'recon'
+        if any(k in n for k in ('system','info')): return 'system'
         return 'other'
 
     @staticmethod
-    def _parse_log_status(log_path: Path) -> tuple[str, str]:
-        """
-        Determine exit status and wall-clock duration from a log file.
-        Fast path: check exit code first (avoids reading entire file for
-        clearly-failed scripts that write the exit code early).
-        """
-        try:
-            # Read up to 128 KB to avoid loading huge forensic logs fully
-            raw = log_path.read_bytes()[:131_072]
-            content = raw.decode('utf-8', errors='replace')
-        except OSError:
-            return 'unknown', 'N/A'
-
-        # Exit code — definitive signal
-        ec_match = re.search(r'exit code (\d+)', content)
-        if ec_match:
-            status = 'success' if ec_match.group(1) == '0' else 'error'
-        elif re.search(r'\berror\b|\bfailed\b', content, re.IGNORECASE):
-            status = 'error'
-        elif re.search(r'\bwarning\b', content, re.IGNORECASE):
-            status = 'warning'
-        else:
-            status = 'success'
-
-        # Duration
-        start_m = re.search(r'started at (.+?) ===', content)
-        end_m   = re.search(r'completed at (.+?) with', content)
-        duration = 'N/A'
-        if start_m and end_m:
-            for fmt in ('%a %b %d %H:%M:%S %Z %Y', '%a %b  %d %H:%M:%S %Z %Y'):
+    def _parse_log(path):
+        try: content = path.read_bytes()[:131_072].decode('utf-8', errors='replace')
+        except: return 'unknown', 'N/A'
+        m = re.search(r'exit code (\d+)', content)
+        if m:   st = 'success' if m.group(1)=='0' else 'error'
+        elif re.search(r'\berror\b|\bfailed\b|\btimed out\b', content, re.I): st = 'error'
+        elif re.search(r'\bwarning\b|\bwarn\b', content, re.I): st = 'warning'
+        else:   st = 'success'
+        sm, em, dur = re.search(r'started at (.+?) ===', content), re.search(r'completed at (.+?) with', content), 'N/A'
+        if sm and em:
+            for fmt in ('%a %b %d %H:%M:%S %Z %Y','%a %b  %d %H:%M:%S %Z %Y','%a %b %d %H:%M:%S %Y'):
                 try:
-                    start = datetime.strptime(start_m.group(1).strip(), fmt)
-                    end   = datetime.strptime(end_m.group(1).strip(), fmt)
-                    secs  = int((end - start).total_seconds())
-                    duration = f'{secs // 60}m {secs % 60}s'
-                    break
-                except ValueError:
-                    continue
+                    s, e = datetime.strptime(sm.group(1).strip(), fmt), datetime.strptime(em.group(1).strip(), fmt)
+                    secs = int((e-s).total_seconds()); dur = f'{secs//60}m {secs%60}s'; break
+                except: continue
+        return st, dur
 
-        return status, duration
+    @staticmethod
+    def _calc_stats(h):
+        return {'total':len(h),'successful':sum(1 for x in h if x['status']=='success'),
+                'warnings':sum(1 for x in h if x['status']=='warning'),'failed':sum(1 for x in h if x['status']=='error')}
 
-    def _calculate_stats(self) -> dict:
-        history = self._get_execution_history()
-        return {
-            'total':      len(history),
-            'successful': sum(1 for h in history if h['status'] == 'success'),
-            'warnings':   sum(1 for h in history if h['status'] == 'warning'),
-            'failed':     sum(1 for h in history if h['status'] == 'error'),
-        }
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
-    def _send_error(self, code: int, message: str) -> None:
-        """Send a JSON error response (overrides the default HTML error page)."""
-        body = json.dumps({'error': message}).encode('utf-8')
+    def _json_response(self, code, data):
+        body = json.dumps(data, indent=2, default=str).encode()
         self.send_response(code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Type','application/json;charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
-        self._add_security_headers()
-        self.end_headers()
-        self.wfile.write(body)
+        self._add_sec(); self.end_headers(); self.wfile.write(body)
 
-    def log_message(self, fmt: str, *args) -> None:
-        """Structured per-request log line."""
-        ts     = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        client = self.client_address[0] if self.client_address else '?'
-        print(f'[{ts}] [{client}] {fmt % args}')
+    def _send_error(self, code, msg): self._json_response(code, {'error': msg})
+
+    def log_message(self, fmt, *a):
+        print(f'[{datetime.now().strftime("%H:%M:%S")}] [{self.client_address[0]}] {fmt%a}')
 
 
-# ─── Reusable address server ──────────────────────────────────────────────────
 class ReuseAddrServer(socketserver.TCPServer):
-    """TCPServer with SO_REUSEADDR so the port is reclaimed on fast restart."""
     allow_reuse_address = True
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
-def main() -> None:
-    LOGS_DIR.mkdir(exist_ok=True)
-    OUTPUT_DIR.mkdir(exist_ok=True)
-
-    print('=' * 60)
-    print('  Cybersecurity Automation Toolkit — Dashboard Server')
-    print('=' * 60)
-
-    try:
-        server = ReuseAddrServer(('', PORT), DashboardHandler)
-    except OSError as exc:
-        sys.exit(f'Cannot bind to port {PORT}: {exc}')
-
-    def _shutdown(sig, _frame):
-        print(f'\n[{datetime.now().strftime("%H:%M:%S")}] Received signal {sig} — shutting down gracefully…')
-        server.shutdown()
-
-    signal.signal(signal.SIGINT,  _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
-
-    print(f'\n  ✓  Listening on   http://localhost:{PORT}')
-    print(f'  ✓  Logs directory  {LOGS_DIR}')
-    print(f'  ✓  Output dir      {OUTPUT_DIR}')
-    print(f'  ✓  Allowed origin  {ALLOWED_ORIGIN}')
-    print(f'\n  Press Ctrl+C to stop\n')
-    print('=' * 60)
-
+def main():
+    LOGS_DIR.mkdir(exist_ok=True); OUTPUT_DIR.mkdir(exist_ok=True)
+    print('='*58, f'\n  CyberDeck Dashboard Server v3\n'+'='*58)
+    if not HAS_PSUTIL:
+        print('\n  ⚠  psutil missing — install: pip install psutil --break-system-packages\n')
+    try: server = ReuseAddrServer(('', PORT), DashboardHandler)
+    except OSError as e: sys.exit(f'Cannot bind port {PORT}: {e}')
+    def _stop(sig, _): print(f'\nShutting down…'); server.shutdown()
+    signal.signal(signal.SIGINT, _stop); signal.signal(signal.SIGTERM, _stop)
+    print(f'  ✓  http://localhost:{PORT}')
+    print(f'  ✓  psutil: {"available" if HAS_PSUTIL else "NOT installed"}')
+    print(f'  ✓  SMTP:   {"configured" if SMTP_USER else "not configured (set SMTP_USER/SMTP_PASS)"}')
+    print('='*58)
     server.serve_forever()
-    print('\n' + '=' * 60)
-    print('  Server stopped.')
-    print('=' * 60)
 
-
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__': main()
