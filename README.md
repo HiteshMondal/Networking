@@ -404,7 +404,5 @@ Network scanning tools (`nmap`) may require `sudo` or raw socket capabilities.
 Hitesh Mondal 🔹 Developer & Cybersecurity Enthusiast 🔹 Focus areas: Networking • System Security • DevOps • Cloud Infrastructure
 
 <div align="center">
-
-**Networking & Cybersecurity Automation Toolkit** · Built with Bash & Python · Linux
-
+  
 </div>
