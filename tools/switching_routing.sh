@@ -467,6 +467,18 @@ INFO
     fi
 }
 
+cam_flood_simulation() {
+    header "CAM Table Flooding Simulation (Conceptual)"
+    echo -e "${INFO}Simulating MAC flooding...${NC}"
+    for i in {1..20}; do
+        mac=$(printf "02:00:%02x:%02x:%02x:%02x\n" $RANDOM $RANDOM $RANDOM $RANDOM)
+        echo "Fake MAC injected: $mac"
+        sleep 0.1
+    done
+    echo
+    echo -e "${WARN}Real attack uses tools like macof to overflow switch CAM table${NC}"
+}
+
 main() {
     check_switch_vs_router
     check_mac_cam
@@ -474,6 +486,7 @@ main() {
     check_routing_basics
     check_static_dynamic_routing
     check_routing_protocols
+    cam_flood_simulation
 }
 
 main

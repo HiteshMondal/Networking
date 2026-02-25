@@ -479,6 +479,44 @@ INFO
     echo -e "  ${GOLD}${jwt_sig:0:40}…${NC}"
 
     pause
+    header "JWT Attack Simulation (alg=none)"
+
+    local fake_header='{"alg":"none","typ":"JWT"}'
+    local fake_payload='{"user":"admin","role":"superuser"}'
+    local header_b64 payload_b64
+    header_b64=$(echo -n "$fake_header" | base64 | tr -d '=' | tr '+/' '-_')
+    payload_b64=$(echo -n "$fake_payload" | base64 | tr -d '=' | tr '+/' '-_')
+    local forged_jwt="${header_b64}.${payload_b64}."
+    echo -e "${FAILURE}Forged JWT:${NC}"
+    echo "  $forged_jwt"
+    echo
+    echo -e "${WARN}If server accepts this → CRITICAL vulnerability${NC}"
+}
+}
+
+permission_audit() {
+    header "Sensitive File Permission Audit"
+
+    ls -l /etc/passwd /etc/shadow 2>/dev/null | sed 's/^/  /'
+
+    echo
+    find / -perm -4000 2>/dev/null | head -10
+
+    echo -e "${WARN}SUID binaries can be abused for privilege escalation${NC}"
+}
+
+mitm_simulation() {
+    header "MITM Attack Concept"
+
+    echo -e "${INFO}Simulating traffic interception (local only)...${NC}"
+
+    if cmd_exists tcpdump; then
+        sudo timeout 5 tcpdump -i any -nn port 80 2>/dev/null | head -10
+    else
+        status_line neutral "tcpdump not available"
+    fi
+
+    echo -e "${WARN}Unencrypted HTTP traffic is visible → vulnerable${NC}"
 }
 
 main() {
@@ -491,6 +529,8 @@ main() {
     certificates_ca
     hashing_demo
     jwt_demo
+    permission_audit
+    mitm_simulation
 }
 
 main

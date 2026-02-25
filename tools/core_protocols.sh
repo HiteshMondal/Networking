@@ -73,6 +73,15 @@ check_tcp_udp() {
     else
         log_warning "Invalid host input — skipping probe."
     fi
+
+    header "Advanced TCP State Analysis"
+
+    echo -e "${INFO}TCP connection states:${NC}"
+    ss -tan | awk '{print $1}' | sort | uniq -c | sort -nr
+
+    echo
+    echo -e "${INFO}Top connections (ESTABLISHED):${NC}"
+    ss -tan state established | head -10
 }
 
 check_http_protocols() {
@@ -149,6 +158,37 @@ INFO
             fi
         done
     fi
+}
+
+tls_cipher_scan() {
+    header "TLS Cipher Strength Check"
+
+    read -rp "Enter domain: " domain
+
+    echo | openssl s_client -connect "$domain:443" 2>/dev/null \
+        | grep "Cipher is"
+}
+
+http_security_check() {
+    header "HTTP Security Header Analysis"
+
+    read -rp "Enter domain: " domain
+
+    headers=$(curl -sI "https://$domain")
+
+    for h in \
+        "Strict-Transport-Security" \
+        "Content-Security-Policy" \
+        "X-Frame-Options" \
+        "X-XSS-Protection" \
+        "X-Content-Type-Options"; do
+
+        if echo "$headers" | grep -qi "$h"; then
+            echo -e "${SUCCESS}$h present${NC}"
+        else
+            echo -e "${WARN}$h missing${NC}"
+        fi
+    done
 }
 
 check_ftp_protocols() {
@@ -264,6 +304,17 @@ INFO
         timeout 5 bash -c "echo QUIT | nc -w3 '$smtp_host' 25 2>/dev/null" | head -5 \
             || echo -e "  ${MUTED}Could not connect${NC}"
     fi
+    header "SMTP Open Relay Test"
+    read -rp "SMTP server: " server
+    {
+        echo "HELO test.com"
+        echo "MAIL FROM:<test@test.com>"
+        echo "RCPT TO:<test@gmail.com>"
+        echo "DATA"
+        echo "Test"
+        echo "."
+        echo "QUIT"
+    } | nc "$server" 25
 }
 
 check_dns() {
@@ -358,6 +409,21 @@ INFO
                 || echo -e "  ${SUCCESS}Transfer refused (expected — server is properly secured)${NC}"
         fi
     fi
+
+    header "DNS Subdomain Enumeration"
+
+    read -rp "Enter domain: " domain
+
+    wordlist=("www" "mail" "api" "dev" "test" "admin")
+
+    for sub in "${wordlist[@]}"; do
+        full="$sub.$domain"
+        if dig +short "$full" | grep -qE '^[0-9]'; then
+            echo -e "${SUCCESS}$full exists${NC}"
+        else
+            echo -e "${MUTED}$full not found${NC}"
+        fi
+    done
 }
 
 check_icmp() {
@@ -421,6 +487,28 @@ INFO
               <(grep "^Icmp:" /proc/net/snmp | tail -1 | tr ' ' '\n') \
               | tail -n +2 | awk '{printf "  %-28s %s\n", $1, $2}'
     fi
+    header "ICMP Anomaly Detection"
+    echo -e "${INFO}Monitoring ICMP traffic (5 seconds)...${NC}"
+    timeout 5 tcpdump -nn icmp 2>/dev/null | awk '{print $0}' | head -10
+    echo
+    echo -e "${WARN}Look for:${NC}"
+    echo "  - Large payload sizes"
+    echo "  - Repeated echo requests"
+    echo "  - Unusual frequency"
+}
+
+protocol_traffic_monitor() {
+    header "Live Protocol Traffic Monitor"
+
+    timeout 5 tcpdump -nn 2>/dev/null | awk '
+    /TCP/ {tcp++}
+    /UDP/ {udp++}
+    /ICMP/ {icmp++}
+    END {
+        print "TCP:", tcp
+        print "UDP:", udp
+        print "ICMP:", icmp
+    }'
 }
 
 main() {
@@ -430,6 +518,7 @@ main() {
     check_email_protocols
     check_dns
     check_icmp
+    protocol_traffic_monitor
 }
 
 main

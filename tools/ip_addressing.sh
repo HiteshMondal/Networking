@@ -158,6 +158,64 @@ TABLE
     else
         status_line neutral "IPv6 Internet not reachable (or not configured)"
     fi
+
+    header "IPv6 Security Analysis"
+    echo -e "${INFO}Checking IPv6 exposure...${NC}"
+    ip -6 route show | sed 's/^/  /'
+    echo
+    echo -e "${INFO}Listening IPv6 services:${NC}"
+    ss -ltn | grep "::" | sed 's/^/  /'
+    echo
+    echo -e "${WARN}IPv6 often bypasses IPv4 firewall rules${NC}"
+}
+
+ip_fragmentation_analysis() {
+    header "IP Fragmentation Analysis"
+
+    echo -e "${INFO}Checking MTU and fragmentation behavior...${NC}"
+
+    local target="8.8.8.8"
+
+    for size in 1472 1500 2000; do
+        echo -e "\n${CYAN}Testing packet size: $size${NC}"
+        ping -c 1 -s "$size" -M do "$target" 2>&1 | \
+            grep -E "frag needed|Message too long|bytes from" | sed 's/^/  /'
+    done
+
+    echo
+    echo -e "${WARN}If fragmentation occurs → possible MTU issues or filtering${NC}"
+}
+
+ip_geolocation() {
+    header "IP Geolocation"
+
+    read -rp "Enter IP: " ip
+
+    curl -s "http://ip-api.com/json/$ip" | \
+        grep -E '"country"|"regionName"|"city"|"isp"' | sed 's/[",]//g' | sed 's/^/  /'
+}
+
+reverse_dns_check() {
+    header "Reverse DNS (PTR) Consistency Check"
+
+    read -rp "Enter IP: " ip
+
+    if ! is_valid_ip "$ip"; then
+        log_warning "Invalid IP"
+        return
+    fi
+
+    local ptr
+    ptr=$(dig +short -x "$ip")
+
+    if [[ -z "$ptr" ]]; then
+        status_line neutral "No PTR record found"
+    else
+        kv "PTR Record" "$ptr"
+
+        echo -e "${INFO}Forward resolving PTR...${NC}"
+        dig +short "$ptr" | sed 's/^/  /'
+    fi
 }
 
 # Subnetting Calculator
@@ -221,6 +279,30 @@ INFO
 16|255.255.0.0|65534 hosts|Large enterprise
 8|255.0.0.0|16.7M hosts|ISP / cloud
 TABLE
+}
+
+subnet_overlap_check() {
+    header "Subnet Overlap Detection"
+
+    read -rp "Enter CIDR 1: " c1
+    read -rp "Enter CIDR 2: " c2
+
+    if ! is_valid_cidr "$c1" || ! is_valid_cidr "$c2"; then
+        log_warning "Invalid CIDR(s)"
+        return
+    fi
+
+    local n1=$(subnet_details "$c1" | grep Network | awk '{print $2}')
+    local n2=$(subnet_details "$c2" | grep Network | awk '{print $2}')
+
+    echo -e "${INFO}Basic comparison:${NC}"
+    echo "  $c1 vs $c2"
+
+    if [[ "$n1" == "$n2" ]]; then
+        status_line ok "Possible overlap (same network)"
+    else
+        status_line neutral "Different networks (manual validation needed)"
+    fi
 }
 
 # Private vs Public IP
@@ -334,6 +416,15 @@ INFO
     else
         status_line neutral "Connection tracking not available (nf_conntrack module not loaded)"
     fi
+
+    header "NAT Traversal Behavior"
+    echo -e "${INFO}Testing outbound connection mapping...${NC}"
+    curl -s ifconfig.me
+    echo
+    echo -e "${INFO}Local ephemeral ports:${NC}"
+    ss -tn state established | awk '{print $4}' | cut -d: -f2 | sort -n | tail -5
+    echo
+    echo -e "${MUTED}Observe port translation behavior (PAT)${NC}"
 }
 
 # ARP
@@ -432,11 +523,24 @@ INFO
     else
         status_line neutral "tcpdump not available — install for ARP watch"
     fi
+
+    header "ARP Spoof Detection"
+    echo -e "${INFO}Checking duplicate MAC entries...${NC}"
+
+    ip neigh show | awk '{print $5}' | sort | uniq -d | while read -r mac; do
+        echo -e "${FAILURE}Duplicate MAC detected: $mac${NC}"
+    done
+    echo
+    echo -e "${WARN}Duplicate MACs may indicate ARP spoofing${NC}"
 }
 
 main() {
     check_ip_versions
+    ip_fragmentation_analysis
+    ip_geolocation
+    reverse_dns_check
     check_subnetting
+    subnet_overlap_check
     check_ip_types
     check_nat
     check_arp
