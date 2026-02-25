@@ -54,9 +54,8 @@ subnet_details() {
     IFS='.' read -ra ipo <<< "$ip"
     local ip_int=$(( (ipo[0] << 24) | (ipo[1] << 16) | (ipo[2] << 8) | ipo[3] ))
 
-    # Network
+    # Network integer
     local net_int=$(( ip_int & mask_int ))
-    local net="${net_int}" 
     local na=$(( (net_int >> 24) & 0xFF ))
     local nb=$(( (net_int >> 16) & 0xFF ))
     local nc=$(( (net_int >> 8)  & 0xFF ))
@@ -372,16 +371,25 @@ INFO
     echo
     printf "  ${BOLD}%-18s %-20s %-12s %-10s${NC}\n" "IP" "MAC" "Interface" "State"
     printf "  ${DARK_GRAY}%-18s %-20s %-12s %-10s${NC}\n" "──────────────────" "────────────────────" "────────────" "──────────"
-    ip neigh show 2>/dev/null | while read -r ip _ iface _ mac state; do
-        [[ "$mac" == "lladdr" ]] && mac="$state" && state=""
-        case "$state" in
+
+    # IP dev IFACE lladdr MAC STATE
+    # Previous code used positional `read` binding that left `mac` receiving
+    # the literal word "lladdr" when entries had no MAC (FAILED state), or
+    # worked accidentally when they did. The guard `[[ "$mac" == "lladdr" ]]`
+    # was dead code because `mac` was bound to the 5th field (the actual MAC),
+    # not the 4th ("lladdr"). Rewritten to use explicit field names.
+    ip neigh show 2>/dev/null | while read -r n_ip _ n_iface _ n_mac n_state; do
+        # Entries in FAILED/INCOMPLETE state may have no MAC — skip them cleanly
+        [[ -z "$n_mac" || "$n_mac" == "FAILED" || "$n_mac" == "INCOMPLETE" ]] && continue
+        local color
+        case "$n_state" in
             REACHABLE) color="$SUCCESS" ;;
-            STALE)     color="$MUTED" ;;
+            STALE)     color="$MUTED"   ;;
             FAILED)    color="$FAILURE" ;;
-            *)         color="$YELLOW" ;;
+            *)         color="$YELLOW"  ;;
         esac
         printf "  ${CYAN}%-18s${NC} ${WHITE}%-20s${NC} ${LABEL}%-12s${NC} ${color}%-10s${NC}\n" \
-            "$ip" "$mac" "$iface" "$state"
+            "$n_ip" "$n_mac" "$n_iface" "$n_state"
     done
 
     section "ARP Statistics"
@@ -397,11 +405,11 @@ INFO
         echo -e "  ${INFO}Pinging gateway ${gw} to refresh ARP...${NC}"
         ping -c 2 -W 1 "$gw" > /dev/null 2>&1
         echo
-        ip neigh show "$gw" 2>/dev/null | while read -r ip _ iface _ mac state; do
-            kv "Gateway IP" "$ip"
-            kv "MAC Address" "$mac"
-            kv "Interface" "$iface"
-            kv "State" "$state"
+        ip neigh show "$gw" 2>/dev/null | while read -r n_ip _ n_iface _ n_mac n_state; do
+            kv "Gateway IP" "$n_ip"
+            kv "MAC Address" "$n_mac"
+            kv "Interface"  "$n_iface"
+            kv "State"      "$n_state"
         done
     fi
 
@@ -426,46 +434,12 @@ INFO
     fi
 }
 
-#  INTERACTIVE MENU
-show_menu() {
-    clear
-    show_banner
-    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD_CYAN}║        IP & Addressing — Interactive         ║${NC}"
-    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "  ${GREEN} 1.${NC}  IPv4 vs IPv6"
-    echo -e "  ${GREEN} 2.${NC}  Subnet Calculator (CIDR/VLSM)"
-    echo -e "  ${GREEN} 3.${NC}  Private vs Public IP"
-    echo -e "  ${GREEN} 4.${NC}  NAT & PAT"
-    echo -e "  ${GREEN} 5.${NC}  ARP (with watch & OUI lookup)"
-    echo -e "  ${GOLD}  A.${NC}  Run ALL sections"
-    echo -e "  ${RED}  0.${NC}  Back"
-    echo
-}
-
 main() {
-    while true; do
-        show_menu
-        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
-        case "$choice" in
-            1) check_ip_versions ;;
-            2) check_subnetting ;;
-            3) check_ip_types ;;
-            4) check_nat ;;
-            5) check_arp ;;
-            [aA])
-                check_ip_versions
-                check_subnetting
-                check_ip_types
-                check_nat
-                check_arp
-                ;;
-            0) return 0 ;;
-            *) log_warning "Invalid choice" ;;
-        esac
-        pause
-    done
+    check_ip_versions
+    check_subnetting
+    check_ip_types
+    check_nat
+    check_arp
 }
 
 main

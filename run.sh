@@ -6,10 +6,19 @@ set -o pipefail
 # Main control script
 # /run.sh
 
-# Establish project root
+# Root check
+if [[ "$EUID" -ne 0 ]]; then
+    echo ""
+    echo "  [!] This script must be run with sudo or as root."
+    echo "  [>] Run:  sudo $0"
+    echo ""
+    exit 1
+fi
+
+# Project root
 export PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Source files
+# Source dependencies
 source "$PROJECT_ROOT/config/settings.conf"
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
@@ -17,175 +26,237 @@ source "$PROJECT_ROOT/scripts/run_script.sh"
 source "$PROJECT_ROOT/tools/tools.sh"
 source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
 
-# Directories
+# Directory setup
 SCRIPT_DIR="$PROJECT_ROOT/scripts"
 LOG_DIR="$PROJECT_ROOT/logs"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
 TOOLS="$PROJECT_ROOT/tools"
 
-# Create necessary directories
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
-
-# Initialize main log
 touch "$LOG_DIR/main.log"
 
-# Function to show main menu
+#  DISPLAY FUNCTIONS
+
+# Main menu
 show_main_menu() {
-    echo -e "${BOLD}${BLUE}═══════════════════ Main Menu ═══════════════════${NC}\n"
-    echo -e "${GREEN}1.${NC} Run Security Scripts"
-    echo -e "${GREEN}2.${NC} View Dashboard"
-    echo -e "${GREEN}3.${NC} View Recent Logs"
-    echo -e "${GREEN}4.${NC} Clean Logs & Output"
-    echo -e "${GREEN}5.${NC} System Information"
-    echo -e "${GREEN}6.${NC} Network Tools"
-    echo -e "${GREEN}7.${NC} Stop Dashboard"
-    echo -e "${RED}0.${NC} Exit"
-    echo -e "\n${BLUE}═════════════════════════════════════════════════${NC}"
+    local W=50
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
+
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "MAIN MENU"
+    echo -e "${BORDER}${border}${NC}"
+    echo
+    echo -e "  ${LABEL}SECURITY${NC}"
+    echo -e "  ${GREEN}  1.${NC}  Run Security Scripts"
+    echo
+    echo -e "  ${LABEL}MONITORING${NC}"
+    echo -e "  ${GREEN}  2.${NC}  View Dashboard"
+    echo -e "  ${GREEN}  7.${NC}  Stop Dashboard"
+    echo
+    echo -e "  ${LABEL}SYSTEM${NC}"
+    echo -e "  ${GREEN}  3.${NC}  View Recent Logs"
+    echo -e "  ${GREEN}  4.${NC}  Clean Logs & Output"
+    echo -e "  ${GREEN}  5.${NC}  System Information"
+    echo
+    echo -e "  ${LABEL}TOOLS${NC}"
+    echo -e "  ${GREEN}  6.${NC}  Network Tools"
+    echo
+    echo -e "  ${RED}  0.${NC}  Exit"
+    echo
+    echo -e "${BORDER}${border}${NC}"
 }
 
-# Function to show script selection menu
+# Script selection menu
 show_script_menu() {
-    local os=$(detect_os)
     clear
     show_banner
-    echo -e "${BOLD}${MAGENTA}═══════════════ Available Scripts ═══════════════${NC}\n"
-    
-    local option_num=1
 
-    echo -e "${CYAN}Network Analysis:${NC}"
-    echo -e "${GREEN}${option_num}.${NC} Detect Suspicious Network Activity (Linux)"
-    ((option_num++))
+    local W=50
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
 
-    echo -e "\n${CYAN}System Security:${NC}"
-    echo -e "${GREEN}${option_num}.${NC} Secure System (Linux)"
-    ((option_num++))
-    echo -e "${GREEN}${option_num}.${NC} Revert Security Changes (Linux)"
-    ((option_num++))
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "SECURITY SCRIPTS"
+    echo -e "${BORDER}${border}${NC}"
+    echo
 
-    echo -e "\n${CYAN}System Information:${NC}"
-    echo -e "${GREEN}${option_num}.${NC} System Information (Linux)"
-    ((option_num++))
-    
-    echo -e "\n${CYAN}Forensics:${NC}"
-    echo -e "${GREEN}${option_num}.${NC} Forensic Data Collection (Linux)"
-    ((option_num++))
+    echo -e "  ${AMBER}Network Analysis${NC}"
+    echo -e "  ${GREEN}  1.${NC}  Detect Suspicious Network Activity"
+    echo
 
-    echo -e "\n${CYAN}Web Reconnaissance:${NC}"
-    echo -e "${GREEN}${option_num}.${NC} Web Reconnaissance (Linux)"
-    ((option_num++))
+    echo -e "  ${AMBER}System Security${NC}"
+    echo -e "  ${GREEN}  2.${NC}  Secure System"
+    echo -e "  ${GREEN}  3.${NC}  Revert Security Changes"
+    echo
 
-    echo -e "${RED}0.${NC} Back to Main Menu"
-    echo -e "\n${MAGENTA}═════════════════════════════════════════════════${NC}"
+    echo -e "  ${AMBER}Information Gathering${NC}"
+    echo -e "  ${GREEN}  4.${NC}  System Information"
+    echo
+
+    echo -e "  ${AMBER}Forensics${NC}"
+    echo -e "  ${GREEN}  5.${NC}  Forensic Data Collection"
+    echo
+
+    echo -e "  ${AMBER}Reconnaissance${NC}"
+    echo -e "  ${GREEN}  6.${NC}  Web Reconnaissance"
+    echo
+
+    echo -e "  ${RED}  0.${NC}  Back to Main Menu"
+    echo
+    echo -e "${BORDER}${border}${NC}"
 }
 
-# Function to view recent logs
+# View logs
 view_logs() {
     clear
     show_banner
-    echo -e "${BOLD}${CYAN}═══════════════ Recent Logs ═══════════════${NC}\n"
-    
+
+    local W=50
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
+
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "RECENT LOGS"
+    echo -e "${BORDER}${border}${NC}"
+    echo
+
     if [ "$(ls -A "$LOG_DIR" 2>/dev/null)" ]; then
-        echo -e "${GREEN}Available log files:${NC}\n"
-        ls -lht "$LOG_DIR" | head -n 11
-        
-        echo -e "\n${YELLOW}Enter log file name to view (or 'q' to quit):${NC} "
-        read log_choice
-        
+        echo -e "  ${LABEL}Available log files:${NC}"
+        echo
+        ls -lht "$LOG_DIR" | head -n 11 | sed 's/^/  /'
+        echo
+        echo -e "  ${MUTED}$(printf '%*s' 46 '' | tr ' ' '-')${NC}"
+        read -rp "$(echo -e "  ${PROMPT}[?] Enter filename to view, or 'q' to go back: ${NC}")" log_choice
+
         if [[ "$log_choice" != "q" ]] && [ -f "$LOG_DIR/$log_choice" ]; then
             less "$LOG_DIR/$log_choice"
         fi
     else
-        echo -e "${YELLOW}No logs found. Run some scripts first.${NC}"
+        echo -e "  ${MUTED}No logs found. Run some scripts first.${NC}"
     fi
-    
-    echo -e "\nPress Enter to continue..."
-    read
+
+    echo
+    read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
 
-# Function to clean logs and output
+# Clean data
 clean_data() {
     clear
     show_banner
-    echo -e "${RED}${BOLD}Warning: This will delete all logs and output files!${NC}"
-    echo -e "${YELLOW}Are you sure? (yes/no):${NC} "
-    read confirm
-    
+
+    local W=50
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
+
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "CLEAN LOGS & OUTPUT"
+    echo -e "${BORDER}${border}${NC}"
+    echo
+    echo -e "  ${FAILURE}[!] WARNING: This will permanently delete all logs and output files!${NC}"
+    echo
+    echo -e "  ${MUTED}Log directory   : ${LOG_DIR}${NC}"
+    echo -e "  ${MUTED}Output directory: ${OUTPUT_DIR}${NC}"
+    echo
+
+    read -rp "$(echo -e "  ${WARNING}[?] Are you sure? [yes/no]: ${NC}")" confirm
+
     if [[ "$confirm" == "yes" ]]; then
         rm -rf "$LOG_DIR"/* "$OUTPUT_DIR"/*
-        log_success "Cleaned successfully"
+        echo
+        log_success "Cleaned successfully."
     else
-        log_info "Operation cancelled"
+        echo
+        log_info "Operation cancelled."
     fi
-    
-    echo -e "\nPress Enter to continue..."
-    read
+
+    echo
+    read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
 
-# Function to show system info
+# System info
 show_system_info() {
     clear
     show_banner
-    echo -e "${BOLD}${CYAN}═══════════════ System Information ═══════════════${NC}\n"
-    echo -e "${GREEN}Operating System:${NC} $(detect_os)"
-    echo -e "${GREEN}Hostname:${NC} $(hostname)"
-    echo -e "${GREEN}User:${NC} $(whoami)"
-    echo -e "${GREEN}Date:${NC} $(date)"
-    echo -e "${GREEN}Uptime:${NC} $(uptime -p 2>/dev/null || uptime)"
-    echo -e "\n${GREEN}Toolkit Statistics:${NC}"
-    echo -e "  Log files: $(find "$LOG_DIR" -type f 2>/dev/null | wc -l)"
-    echo -e "  Output files: $(find "$OUTPUT_DIR" -type f 2>/dev/null | wc -l)"
-    echo -e "  Available scripts: $(find "$SCRIPT_DIR" -type f 2>/dev/null | wc -l)"
-    
-    # Show dashboard status
+
+    local W=50
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
+
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "SYSTEM INFORMATION"
+    echo -e "${BORDER}${border}${NC}"
+    echo
+
+    echo -e "  ${AMBER}Host${NC}"
+    kv "  Operating System" "$(detect_os)"
+    kv "  Hostname"         "$(hostname)"
+    kv "  User"             "$(whoami)"
+    kv "  Date"             "$(date '+%Y-%m-%d %H:%M:%S')"
+    kv "  Uptime"           "$(uptime -p 2>/dev/null || uptime)"
+    echo
+
+    echo -e "  ${AMBER}Toolkit${NC}"
+    kv "  Log files"        "$(find "$LOG_DIR"    -type f 2>/dev/null | wc -l)"
+    kv "  Output files"     "$(find "$OUTPUT_DIR" -type f 2>/dev/null | wc -l)"
+    kv "  Scripts"          "$(find "$SCRIPT_DIR" -type f 2>/dev/null | wc -l)"
+    echo
+
+    echo -e "  ${AMBER}Dashboard${NC}"
     if [ -f "$PID_FILE" ]; then
-        local pid=$(cat "$PID_FILE")
+        local pid
+        pid=$(cat "$PID_FILE")
         if kill -0 "$pid" 2>/dev/null; then
-            echo -e "  Dashboard: ${GREEN}Running${NC} (PID: $pid)"
+            kv "  Status" "$(echo -e "${SUCCESS}Running${NC} (PID: ${pid})")"
         else
-            echo -e "  Dashboard: ${RED}Not running${NC}"
+            kv "  Status" "$(echo -e "${FAILURE}Not running (stale PID)${NC}")"
         fi
     else
-        echo -e "  Dashboard: ${RED}Not running${NC}"
+        kv "  Status" "$(echo -e "${MUTED}Not running${NC}")"
     fi
-    
-    echo -e "\nPress Enter to continue..."
-    read
+
+    echo
+    read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
 
-# Cleanup function on exit
+#  CLEANUP
 cleanup() {
+    echo
     log_info "Toolkit shutting down..."
 }
 
 trap cleanup EXIT
 
-# Main loop
+#  MAIN LOOP
 main() {
-    # Initial check
     if [ ! -d "$PROJECT_ROOT/lib" ]; then
-        echo -e "${RED}Error: Required libraries not found.${NC}"
-        echo -e "${YELLOW}Please run the setup steps from the documentation.${NC}"
+        echo -e "${FAILURE}[!] Error: Required libraries not found.${NC}"
+        echo -e "${WARNING}[~] Please run the setup steps from the documentation.${NC}"
         exit 1
     fi
-    
+
     while true; do
+        clear
         show_banner
         show_main_menu
-        echo -e -n "\n${YELLOW}Enter your choice:${NC} "
-        read choice
-        
+
+        echo -e -n "  "
+        read -rp "$(echo -e "${PROMPT}[?] Enter your choice: ${NC}")" choice
+
+        echo
+
         case $choice in
             1)
                 while true; do
                     show_script_menu
-                    echo -e -n "\n${YELLOW}Enter your choice:${NC} "
-                    read script_choice
-                    
+                    echo -e -n "  "
+                    read -rp "$(echo -e "${PROMPT}[?] Enter your choice: ${NC}")" script_choice
+
                     if [[ "$script_choice" == "0" ]]; then
                         break
                     fi
-                    
+
                     run_script "$script_choice"
                 done
                 ;;
@@ -194,25 +265,25 @@ main() {
             4) clean_data ;;
             5) show_system_info ;;
             6) tools ;;
-            7) 
+            7)
                 source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
                 stop_dashboard
-                echo -e "\nPress Enter to continue..."
-                read
+                echo
+                read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
                 ;;
-            0) 
-                echo -e "\n${GREEN}Thank you for using the Networking & Cybersecurity Toolkit!${NC}"
-                echo ""
+            0)
+                clear
+                show_banner
+                echo -e "  ${SUCCESS}[+] Thank you for using the Networking & Cybersecurity Toolkit!${NC}"
+                echo
                 exit 0
                 ;;
-            *) 
+            *)
                 log_error "Invalid choice. Please try again."
-                sleep 2
+                sleep 1
                 ;;
         esac
     done
 }
 
-
-# Run main function
 main

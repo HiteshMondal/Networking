@@ -5,7 +5,7 @@
 # Covers: Switch vs Router, MAC/CAM, VLANs, Routing Basics, Static vs Dynamic, RIP/OSPF/BGP
 # New: interactive routing calculator, VLAN manager, MTR-style path analysis
 
-# ── Bootstrap ────────────────────────────────────────────
+# Bootstrap
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$_SELF_DIR")"
 source "$PROJECT_ROOT/lib/colors.sh"
@@ -187,13 +187,19 @@ INFO
 
     echo -e "${INFO}Checking for VLAN interfaces:${NC}"
     local found_vlans=0
-    ip link show 2>/dev/null | grep "@" | while read -r _ iface_parent _; do
-        local iface="${iface_parent%%@*}"
-        local parent="${iface_parent##*@}"
-        parent="${parent/:/}"
+
+    # ip link show` output for VLAN interfaces is - N: eth0.10@eth0: <FLAGS> ...
+    # The second field is "name@parent:" — both halves carry a trailing colon
+    # that must be stripped.  Previously only the parent colon was stripped
+    # and the iface colon was never removed, leaving e.g. "eth0.10:" in output.
+    ip link show 2>/dev/null | grep "@" | while read -r _ iface_at_parent _; do
+        # Strip trailing colon from the whole "name@parent:" token first
+        local token="${iface_at_parent%:}"
+        local iface="${token%%@*}"
+        local parent="${token##*@}"
         local vid
-        vid=$(ip -d link show "${iface/:/}" 2>/dev/null | grep -oP 'id \K[0-9]+' | head -1)
-        echo -e "  ${SUCCESS}${iface/:/}${NC}  VLAN ID: ${GOLD}${vid:-?}${NC}  Parent: ${CYAN}${parent}${NC}"
+        vid=$(ip -d link show "$iface" 2>/dev/null | grep -oP 'id \K[0-9]+' | head -1)
+        echo -e "  ${SUCCESS}${iface}${NC}  VLAN ID: ${GOLD}${vid:-?}${NC}  Parent: ${CYAN}${parent}${NC}"
         found_vlans=1
     done
 
@@ -461,49 +467,13 @@ INFO
     fi
 }
 
-#  INTERACTIVE MENU
-show_menu() {
-    clear
-    show_banner
-    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD_CYAN}║     Switching & Routing — Interactive        ║${NC}"
-    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "  ${GREEN} 1.${NC}  Switch vs Router"
-    echo -e "  ${GREEN} 2.${NC}  MAC Addresses & CAM Table"
-    echo -e "  ${GREEN} 3.${NC}  VLANs (802.1Q)"
-    echo -e "  ${GREEN} 4.${NC}  Routing Fundamentals + Path Finder"
-    echo -e "  ${GREEN} 5.${NC}  Static vs Dynamic Routing"
-    echo -e "  ${GREEN} 6.${NC}  Routing Protocols (RIP, OSPF, BGP)"
-    echo -e "  ${GOLD}  A.${NC}  Run ALL sections"
-    echo -e "  ${RED}  0.${NC}  Back"
-    echo
-}
-
 main() {
-    while true; do
-        show_menu
-        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
-        case "$choice" in
-            1) check_switch_vs_router ;;
-            2) check_mac_cam ;;
-            3) check_vlans ;;
-            4) check_routing_basics ;;
-            5) check_static_dynamic_routing ;;
-            6) check_routing_protocols ;;
-            [aA])
-                check_switch_vs_router
-                check_mac_cam
-                check_vlans
-                check_routing_basics
-                check_static_dynamic_routing
-                check_routing_protocols
-                ;;
-            0) return 0 ;;
-            *) log_warning "Invalid choice" ;;
-        esac
-        pause
-    done
+    check_switch_vs_router
+    check_mac_cam
+    check_vlans
+    check_routing_basics
+    check_static_dynamic_routing
+    check_routing_protocols
 }
 
 main

@@ -423,49 +423,13 @@ INFO
     fi
 }
 
-#  INTERACTIVE MENU
-show_menu() {
-    clear
-    show_banner
-    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD_CYAN}║         Core Protocols — Interactive         ║${NC}"
-    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "  ${GREEN} 1.${NC}  TCP vs UDP"
-    echo -e "  ${GREEN} 2.${NC}  HTTP / HTTPS"
-    echo -e "  ${GREEN} 3.${NC}  FTP / SFTP"
-    echo -e "  ${GREEN} 4.${NC}  Email Protocols (SMTP, POP3, IMAP)"
-    echo -e "  ${GREEN} 5.${NC}  DNS (all record types + propagation)"
-    echo -e "  ${GREEN} 6.${NC}  ICMP (ping, traceroute)"
-    echo -e "  ${GOLD}  A.${NC}  Run ALL sections"
-    echo -e "  ${RED}  0.${NC}  Back"
-    echo
-}
-
 main() {
-    while true; do
-        show_menu
-        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
-        case "$choice" in
-            1) check_tcp_udp ;;
-            2) check_http_protocols ;;
-            3) check_ftp_protocols ;;
-            4) check_email_protocols ;;
-            5) check_dns ;;
-            6) check_icmp ;;
-            [aA])
-                check_tcp_udp
-                check_http_protocols
-                check_ftp_protocols
-                check_email_protocols
-                check_dns
-                check_icmp
-                ;;
-            0) return 0 ;;
-            *) log_warning "Invalid choice" ;;
-        esac
-        pause
-    done
+    check_tcp_udp
+    check_http_protocols
+    check_ftp_protocols
+    check_email_protocols
+    check_dns
+    check_icmp
 }
 
 main

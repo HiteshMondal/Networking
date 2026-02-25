@@ -9,26 +9,21 @@ _TOOLS_LOADED=1
 
 # Path resolution
 _TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Use :=  so a value already set by run.sh is never overwritten.
 : "${PROJECT_ROOT:="$(dirname "$_TOOLS_DIR")"}"
 
-# Canonical directory paths (exported for child scripts)
 export LOG_DIR="${PROJECT_ROOT}/logs"
 export OUTPUT_DIR="${PROJECT_ROOT}/output"
 
-# Source dependencies
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
 
-# Directory init (called at entry point, not at source time)
+# Directory init
 _tools_init() {
     mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 }
 
-# DISPATCH HELPER
+#  DISPATCH HELPER
 # Usage: _launch "label" "tools/script.sh"
-# Validates the script exists, then runs it in a subshell.
-# stdout+stderr are tee'd to a timestamped log file in $LOG_DIR.
 _launch() {
     local label="$1"
     local relative_path="$2"
@@ -43,15 +38,23 @@ _launch() {
         return 1
     fi
 
-    # Build a filename-safe version of the label for the log file name.
     local safe_label
     safe_label=$(echo "$label" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_')
     local log_file="${LOG_DIR}/${safe_label}_$(date '+%Y%m%d_%H%M%S').log"
 
-    log_info "Launching ${label}…"
+    # Launch header
+    clear
+    show_banner
+    local W=50
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${ACCENT}[>] %-$((W-7))s${NC}  ${BORDER}|${NC}\n" "$label"
+    echo -e "${BORDER}${border}${NC}"
+    echo
     log_info "Log: ${log_file}"
+    echo
 
-    # Run the tool, tee output to log file so the dashboard can read it.
     {
         echo "=== ${label} started at $(date) ==="
         bash "$full_path"
@@ -60,40 +63,52 @@ _launch() {
         return $rc
     } 2>&1 | tee -a "$log_file"
 
-    # Recover the actual exit code from the subshell via PIPESTATUS.
     local exit_code="${PIPESTATUS[0]}"
-    [[ $exit_code -ne 0 ]] && log_warning "${label} exited with code ${exit_code}"
+
+    echo
+    echo -e "  ${DARK_GRAY}$(printf '%*s' 50 '' | tr ' ' '-')${NC}"
+    if [[ $exit_code -ne 0 ]]; then
+        log_warning "${label} exited with code ${exit_code}"
+    else
+        log_success "${label} completed successfully."
+    fi
+
     return $exit_code
 }
 
-# MENU DISPLAY
+#  MENU
 _tools_menu() {
     clear
     show_banner
-    echo -e "${BOLD_BLUE}══════════════════════════════════════════${NC}"
-    echo -e "${BOLD_GREEN}           🛠  Available Tools             ${NC}"
-    echo -e "${BOLD_BLUE}══════════════════════════════════════════${NC}"
+    local W=54
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "NETWORK TOOLS"
+    echo -e "${BORDER}${border}${NC}"
     echo
-    echo -e "  ${GREEN} 1.${NC}  Network Tools           ${MUTED}(interfaces, ports, ping, traceroute)${NC}"
-    echo -e "  ${GREEN} 2.${NC}  Core Protocols          ${MUTED}(TCP/UDP, HTTP, DNS, ICMP)${NC}"
-    echo -e "  ${GREEN} 3.${NC}  IP Addressing           ${MUTED}(subnetting, NAT, ARP)${NC}"
-    echo -e "  ${GREEN} 4.${NC}  Network Master          ${MUTED}(all networking topics)${NC}"
-    echo -e "  ${GREEN} 5.${NC}  Networking Basics       ${MUTED}(OSI, TCP/IP, bandwidth, switching)${NC}"
-    echo -e "  ${GREEN} 6.${NC}  Switching & Routing     ${MUTED}(VLANs, MAC, RIP/OSPF/BGP)${NC}"
-    echo -e "  ${GREEN} 7.${NC}  Security Fundamentals   ${MUTED}(CIA, AES, RSA, TLS, hashing)${NC}"
+    echo -e "  ${AMBER}Diagnostics & Live Analysis${NC}"
+    echo -e "  ${GREEN}  1.${NC}  Network Tools             ${MUTED}Interfaces, ports, ping, traceroute${NC}"
+    echo -e "  ${GREEN}  2.${NC}  Core Protocols            ${MUTED}TCP/UDP, HTTP, DNS, ICMP${NC}"
+    echo -e "  ${GREEN}  3.${NC}  IP Addressing             ${MUTED}Subnetting, NAT, ARP${NC}"
     echo
-    echo -e "  ${RED} 0.${NC}  Back to Main Menu"
+    echo -e "  ${AMBER}Education & Reference${NC}"
+    echo -e "  ${GREEN}  4.${NC}  Network Master            ${MUTED}All networking topics${NC}"
+    echo -e "  ${GREEN}  5.${NC}  Networking Basics         ${MUTED}OSI, TCP/IP, bandwidth, switching${NC}"
+    echo -e "  ${GREEN}  6.${NC}  Switching & Routing       ${MUTED}VLANs, MAC, RIP/OSPF/BGP${NC}"
+    echo -e "  ${GREEN}  7.${NC}  Security Fundamentals     ${MUTED}CIA, AES, RSA, TLS, hashing${NC}"
     echo
-    echo -e "${BOLD_BLUE}══════════════════════════════════════════${NC}"
+    echo -e "  ${RED}  0.${NC}  Back to Main Menu"
+    echo
+    echo -e "${BORDER}${border}${NC}"
 }
 
-# MAIN TOOLS FUNCTION
-# Called from run.sh: tools
+#  ENTRY POINT (called from run.sh as: tools)
 tools() {
     _tools_init
     while true; do
         _tools_menu
-        read -rp "$(echo -e "  ${PROMPT}Choose an option:${NC} ")" tools_choice
+        read -rp "$(echo -e "  ${PROMPT}[?] Choose an option: ${NC}")" tools_choice
         echo
         case "$tools_choice" in
             1) _launch "Network Tools"          "tools/network_tools.sh"         ;;
@@ -104,7 +119,7 @@ tools() {
             6) _launch "Switching & Routing"    "tools/switching_routing.sh"     ;;
             7) _launch "Security Fundamentals"  "tools/security_fundamentals.sh" ;;
             0)
-                log_info "Returning to main menu…"
+                log_info "Returning to main menu..."
                 return 0
                 ;;
             *)
@@ -112,5 +127,10 @@ tools() {
                 sleep 1
                 ;;
         esac
+
+        # Brief pause after each tool run before returning to menu
+        echo
+        echo -e "  ${DARK_GRAY}$(printf '%*s' 50 '' | tr ' ' '-')${NC}"
+        read -rp "$(echo -e "  ${MUTED}Press Enter to return to the Tools menu...${NC}  ")"
     done
 }

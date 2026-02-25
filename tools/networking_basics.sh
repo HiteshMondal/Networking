@@ -188,46 +188,11 @@ check_switching_types() {
     pause
 }
 
-#  INTERACTIVE MENU
-show_menu() {
-    clear
-    show_banner
-    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD_CYAN}║       Networking Basics — Interactive        ║${NC}"
-    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "  ${GREEN} 1.${NC}  OSI Model (all 7 layers)"
-    echo -e "  ${GREEN} 2.${NC}  TCP/IP Model (4 layers)"
-    echo -e "  ${GREEN} 3.${NC}  Bandwidth vs Latency vs Throughput"
-    echo -e "  ${GREEN} 4.${NC}  Packet Switching vs Circuit Switching"
-    echo -e "  ${GOLD}  A.${NC}  Run ALL sections"
-    echo -e "  ${RED}  0.${NC}  Back"
-    echo
-}
-
 main() {
-    while true; do
-        show_menu
-        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
-        case "$choice" in
-            1) check_osi_model ;;
-            2) check_tcpip_model ;;
-            3) check_bandwidth_concepts ;;
-            4) check_switching_types ;;
-            [aA])
-                check_osi_model
-                check_tcpip_model
-                check_bandwidth_concepts
-                check_switching_types
-                echo -e "\n${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-                echo -e "${GREEN}║  ✓ Networking Basics — All Sections Complete     ║${NC}"
-                echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}\n"
-                pause
-                ;;
-            0) return 0 ;;
-            *) log_warning "Invalid choice" ;;
-        esac
-    done
+        check_osi_model
+        check_tcpip_model
+        check_bandwidth_concepts
+        check_switching_types
 }
 
 main

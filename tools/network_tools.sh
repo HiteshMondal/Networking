@@ -257,18 +257,20 @@ run_dns_bench() {
         local ip="${rs%%:*}" name="${rs##*:}"
         local t_start t_end elapsed answer
 
-        t_start=$(date +%s%N 2>/dev/null)
-        answer=$(dig +short +time=2 "$domain" "@$ip" 2>/dev/null | head -1)
-        t_end=$(date +%s%N 2>/dev/null)
-
         if [[ "$use_ns" -eq 1 ]]; then
-            elapsed=$(( (t_end - t_start) / 1000000 ))   # nanoseconds → ms
+            # Capture answer and timing in a single dig call per resolver.
+            # Previously the fallback branch ran dig twice — once for timing
+            # (discarding the answer) and once to capture the answer.
+            t_start=$(date +%s%N)
+            answer=$(dig +short +time=2 "$domain" "@$ip" 2>/dev/null | head -1)
+            t_end=$(date +%s%N)
+            elapsed=$(( (t_end - t_start) / 1000000 ))
         else
-            # Second-precision fallback: use SECONDS builtin or two date +%s calls
+            # Second-precision fallback: single dig call; accept ~1s granularity.
             t_start=$(date +%s)
             answer=$(dig +short +time=2 "$domain" "@$ip" 2>/dev/null | head -1)
             t_end=$(date +%s)
-            elapsed=$(( (t_end - t_start) * 1000 ))       # seconds → ms (rough)
+            elapsed=$(( (t_end - t_start) * 1000 ))
         fi
 
         local color="$GREEN"
@@ -380,48 +382,17 @@ run_install_all() {
     pause
 }
 
-#  MENU
-show_menu() {
-    clear
-    show_banner
-    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD_CYAN}║       Network Tools Analyzer & Monitor       ║${NC}"
-    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "  ${GREEN}  1.${NC}  Network Interfaces & Link Status"
-    echo -e "  ${GREEN}  2.${NC}  Active Connections & Listening Ports"
-    echo -e "  ${GREEN}  3.${NC}  Ping Test"
-    echo -e "  ${GREEN}  4.${NC}  Traceroute"
-    echo -e "  ${GREEN}  5.${NC}  Port Scanner (common/range/nmap)"
-    echo -e "  ${GREEN}  6.${NC}  Packet Capture (tcpdump)"
-    echo -e "  ${GREEN}  7.${NC}  DNS Benchmark (6 resolvers)"
-    echo -e "  ${GREEN}  8.${NC}  WHOIS / IP Info"
-    echo -e "  ${GREEN}  9.${NC}  Bandwidth Monitor (2-sec snapshot)"
-    echo -e "  ${GOLD}  T.${NC}  Check & Install All Tools"
-    echo -e "  ${RED}  0.${NC}  Back"
-    echo
-}
-
 main() {
     detect_pkg_manager
-    while true; do
-        show_menu
-        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
-        case "$choice" in
-            1) run_interface_info ;;
-            2) run_connections ;;
-            3) run_ping ;;
-            4) run_traceroute ;;
-            5) run_port_scan ;;
-            6) run_tcpdump ;;
-            7) run_dns_bench ;;
-            8) run_whois ;;
-            9) run_bandwidth_monitor ;;
-            [tT]) run_install_all ;;
-            0) return 0 ;;
-            *) log_warning "Invalid choice" ;;
-        esac
-    done
+    run_interface_info
+    run_connections
+    run_ping
+    run_traceroute
+    run_port_scan
+    run_tcpdump
+    run_dns_bench
+    run_whois
+    run_bandwidth_monitor
 }
 
 main

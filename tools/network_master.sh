@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # /tools/network_master.sh
 # Network Concepts Checker — Master Launcher
 
@@ -26,7 +25,6 @@ check_requirements() {
     for tool in ip ss ping traceroute dig nslookup curl openssl; do
         cmd_exists "$tool" || missing+=("$tool")
     done
-
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo
         log_warning "Some tools are missing: ${missing[*]}"
@@ -36,38 +34,8 @@ check_requirements() {
     fi
 }
 
-#  SCRIPT RUNNER
-run_topic() {
-    local script_name="$1"
-    local script_path="$SCRIPT_DIR/$script_name"
-
-    if [[ ! -f "$script_path" ]]; then
-        log_error "Script not found: $script_path"
-        pause
-        return 1
-    fi
-
-    if [[ ! -r "$script_path" ]]; then
-        log_error "Script not readable: $script_path"
-        pause
-        return 1
-    fi
-
-    log_step "Launching: $script_name"
-    # bash inherits exported variables (LOG_DIR, OUTPUT_DIR, PROJECT_ROOT)
-    bash "$script_path"
-    local rc=$?
-
-    if [[ $rc -ne 0 ]]; then
-        log_warning "Script exited with code $rc"
-    else
-        log_success "Completed: $script_name"
-    fi
-    return $rc
-}
-
 #  FULL SYSTEM ANALYSIS (non-interactive run-all)
-run_all() {
+run_full_analysis() {
     local timestamp
     timestamp=$(date '+%Y%m%d_%H%M%S')
 
@@ -87,7 +55,32 @@ run_all() {
         echo "  OS        : $(detect_os)"
         echo "══════════════════════════════════════════════════════"
         echo
-    } | tee "$report_file" | tee -a "$log_file"
+    } | tee -a "$report_file" | tee -a "$log_file"
+
+    # Create a BASH_ENV shim that overrides interactive helpers so child
+    # scripts don't block waiting for user input when run non-interactively.
+    # This does NOT modify any existing function — it only takes effect in
+    # the child bash processes spawned by the loop below.
+    local shim_file="${OUTPUT_DIR}/.noninteractive_shim_$$.sh"
+    cat > "$shim_file" << 'SHIM'
+# Injected by network_master.sh — suppresses blocking calls in child scripts.
+pause()          { echo; }
+countdown()      { echo; }
+confirm()        { return 1; }
+# Override read-based prompts: strip the prompt and return the default value
+# embedded in each function's own default variable (already coded in scripts).
+# We achieve this by making read a no-op — the caller's default applies.
+read()           { return 0; }
+SHIM
+
+    # Register cleanup BEFORE exporting BASH_ENV so the trap is in place for
+    # every possible exit path: normal completion, Ctrl+C (INT), kill (TERM),
+    # or hangup (HUP). Without this, an interrupted run leaves BASH_ENV
+    # exported in the parent tools.sh session, silently suppressing pause/read
+    # in every subsequent _launch call for the rest of that session.
+    trap 'rm -f "$shim_file"; unset BASH_ENV' EXIT INT TERM HUP
+
+    export BASH_ENV="$shim_file"
 
     local topics=(
         "networking_basics.sh:Networking Basics"
@@ -98,6 +91,7 @@ run_all() {
     )
 
     local passed=0 failed=0
+
     for entry in "${topics[@]}"; do
         local script="${entry%%:*}" label="${entry##*:}"
         echo
@@ -105,21 +99,26 @@ run_all() {
 
         if [[ ! -f "$SCRIPT_DIR/$script" ]]; then
             status_line fail "$label — script missing"
-            (( failed++ ))
+            failed=$(( failed + 1 ))
             continue
         fi
 
         {
             echo
             echo "── ${label} ──"
-            # Child script inherits LOG_DIR, OUTPUT_DIR, PROJECT_ROOT via export
+            # Child script inherits LOG_DIR, OUTPUT_DIR, PROJECT_ROOT, BASH_ENV via export
             bash "$SCRIPT_DIR/$script" 2>&1 || true
         } | tee -a "$report_file" | tee -a "$log_file"
 
         status_line ok "$label — complete"
-        (( passed++ ))
+        passed=$(( passed + 1 ))
     done
 
+    # Explicit cleanup on clean exit — the trap above covers all other paths
+    # (INT/TERM/HUP/crash), so this is a belt-and-suspenders safety call.
+    rm -f "$shim_file"
+    unset BASH_ENV
+    trap - EXIT INT TERM HUP
     echo
     echo -e "${BOLD}Analysis Complete:${NC}"
     kv "Passed"  "$passed"
@@ -130,50 +129,10 @@ run_all() {
     pause
 }
 
-#  MENU
-show_menu() {
-    clear
-    show_banner
-    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD_CYAN}║     Network Concepts Checker & Demonstrator          ║${NC}"
-    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "  ${GREEN} 1.${NC}  Networking Basics  ${MUTED}(OSI/TCP-IP, Bandwidth, Switching)${NC}"
-    echo -e "  ${GREEN} 2.${NC}  IP & Addressing    ${MUTED}(IPv4/6, Subnetting, NAT, ARP)${NC}"
-    echo -e "  ${GREEN} 3.${NC}  Core Protocols     ${MUTED}(TCP/UDP, HTTP, DNS, ICMP)${NC}"
-    echo -e "  ${GREEN} 4.${NC}  Switching & Routing${MUTED}(VLANs, MAC, RIP/OSPF/BGP)${NC}"
-    echo -e "  ${GREEN} 5.${NC}  Security Fundamentals${MUTED}(CIA, AES, RSA, TLS, JWT)${NC}"
-    echo
-    echo -e "  ${GOLD}  A.${NC}  Run ALL — Full System Analysis (saves report)"
-    echo
-    echo -e "  ${RED}  0.${NC}  Exit"
-    echo
-}
-
 #  MAIN
 main() {
     check_requirements
-
-    while true; do
-        show_menu
-        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
-        case "$choice" in
-            1) run_topic "networking_basics.sh" ;;
-            2) run_topic "ip_addressing.sh" ;;
-            3) run_topic "core_protocols.sh" ;;
-            4) run_topic "switching_routing.sh" ;;
-            5) run_topic "security_fundamentals.sh" ;;
-            [aA]) run_all ;;
-            0)
-                echo -e "\n${CYAN}  Goodbye!${NC}\n"
-                exit 0
-                ;;
-            *)
-                log_warning "Invalid choice — try again"
-                sleep 1
-                ;;
-        esac
-    done
+    run_full_analysis
 }
 
 main

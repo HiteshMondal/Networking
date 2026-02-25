@@ -106,48 +106,65 @@ INFO
     local stored_hash
     stored_hash=$(echo -n "password123" | sha256sum | awk '{print $1}')
 
-    read -rp "  $(echo -e "${PROMPT}Username:${NC} ")" entered_user
-    read -rsp "  $(echo -e "${PROMPT}Password:${NC} ")" entered_pass; echo
-
-    local entered_hash
-    entered_hash=$(echo -n "$entered_pass" | sha256sum | awk '{print $1}')
-
-    if [[ "$entered_user" == "admin" && "$entered_hash" == "$stored_hash" ]]; then
-        status_line ok "Authentication SUCCESSFUL"
-        echo -e "  ${MUTED}Credential: admin / password123${NC}"
-        echo
-        echo -e "  ${INFO}Authorization (simulated RBAC):${NC}"
-        echo -e "  ${SUCCESS}✔${NC} Role: administrator"
-        echo -e "  ${SUCCESS}✔${NC} Can read logs"
-        echo -e "  ${SUCCESS}✔${NC} Can modify configuration"
+    # FIX: `read -rsp` receives EOF immediately when stdout is piped (e.g.
+    # when network_master.sh runs this script through `tee`).  Guard with a
+    # terminal check so the demo skips gracefully in non-interactive contexts
+    # instead of silently comparing an empty string and always failing.
+    if [[ ! -t 0 ]]; then
+        log_info "Skipping interactive auth demo (non-interactive / piped context)"
+        echo -e "  ${MUTED}Run this script directly to use the interactive demo.${NC}"
     else
-        status_line fail "Authentication FAILED"
-        echo -e "  ${MUTED}Hint: try admin / password123${NC}"
+        read -rp "  $(echo -e "${PROMPT}Username:${NC} ")" entered_user
+        read -rsp "  $(echo -e "${PROMPT}Password:${NC} ")" entered_pass; echo
+
+        local entered_hash
+        entered_hash=$(echo -n "$entered_pass" | sha256sum | awk '{print $1}')
+
+        if [[ "$entered_user" == "admin" && "$entered_hash" == "$stored_hash" ]]; then
+            status_line ok "Authentication SUCCESSFUL"
+            echo -e "  ${MUTED}Credential: admin / password123${NC}"
+            echo
+            echo -e "  ${INFO}Authorization (simulated RBAC):${NC}"
+            echo -e "  ${SUCCESS}✔${NC} Role: administrator"
+            echo -e "  ${SUCCESS}✔${NC} Can read logs"
+            echo -e "  ${SUCCESS}✔${NC} Can modify configuration"
+        else
+            status_line fail "Authentication FAILED"
+            echo -e "  ${MUTED}Hint: try admin / password123${NC}"
+        fi
     fi
 
     section "Password Strength Checker"
-    read -rsp "  $(echo -e "${PROMPT}Enter a password to analyse (not echoed):${NC} ")" check_pass; echo
-    echo
-    local score=0 warnings=()
 
-    [[ ${#check_pass} -ge 8  ]] && (( score++ )) || warnings+=("Too short (< 8 chars)")
-    [[ ${#check_pass} -ge 12 ]] && (( score++ )) || warnings+=("Short (< 12 chars recommended)")
-    [[ "$check_pass" =~ [A-Z] ]] && (( score++ )) || warnings+=("No uppercase letters")
-    [[ "$check_pass" =~ [a-z] ]] && (( score++ )) || warnings+=("No lowercase letters")
-    [[ "$check_pass" =~ [0-9] ]] && (( score++ )) || warnings+=("No digits")
-    [[ "$check_pass" =~ [^a-zA-Z0-9] ]] && (( score++ )) || warnings+=("No special characters")
-    [[ ${#check_pass} -ge 16 ]] && (( score++ ))
+    local check_pass
+    # Same guard — skip interactive password prompt when not on a terminal
+    if [[ ! -t 0 ]]; then
+        log_info "Skipping interactive password check (non-interactive / piped context)"
+        echo -e "  ${MUTED}Run this script directly to use the password strength checker.${NC}"
+    else
+        read -rsp "  $(echo -e "${PROMPT}Enter a password to analyse (not echoed):${NC} ")" check_pass; echo
+        echo
+        local score=0 warnings=()
 
-    local label color
-    if   (( score >= 6 )); then label="Strong"    color="$SUCCESS"
-    elif (( score >= 4 )); then label="Moderate"  color="$YELLOW"
-    else                        label="Weak"      color="$FAILURE"
+        [[ ${#check_pass} -ge 8  ]] && (( score++ )) || warnings+=("Too short (< 8 chars)")
+        [[ ${#check_pass} -ge 12 ]] && (( score++ )) || warnings+=("Short (< 12 chars recommended)")
+        [[ "$check_pass" =~ [A-Z] ]] && (( score++ )) || warnings+=("No uppercase letters")
+        [[ "$check_pass" =~ [a-z] ]] && (( score++ )) || warnings+=("No lowercase letters")
+        [[ "$check_pass" =~ [0-9] ]] && (( score++ )) || warnings+=("No digits")
+        [[ "$check_pass" =~ [^a-zA-Z0-9] ]] && (( score++ )) || warnings+=("No special characters")
+        [[ ${#check_pass} -ge 16 ]] && (( score++ ))
+
+        local label color
+        if   (( score >= 6 )); then label="Strong"    color="$SUCCESS"
+        elif (( score >= 4 )); then label="Moderate"  color="$YELLOW"
+        else                        label="Weak"      color="$FAILURE"
+        fi
+
+        echo -e "  Strength score: ${color}${score}/7 — ${label}${NC}"
+        for w in "${warnings[@]}"; do
+            echo -e "  ${WARNING}⚠${NC} $w"
+        done
     fi
-
-    echo -e "  Strength score: ${color}${score}/7 — ${label}${NC}"
-    for w in "${warnings[@]}"; do
-        echo -e "  ${WARNING}⚠${NC} $w"
-    done
 
     pause
 }
@@ -220,15 +237,22 @@ INFO
     echo -e "  ${MUTED}(One character change → completely different 256-bit hash)${NC}"
 
     section "Password Hashing"
-    read -rsp "  $(echo -e "${PROMPT}Enter a password to hash:${NC} ")" pw; echo
-    if [[ -n "$pw" ]]; then
-        local h
-        h=$(openssl passwd -6 "$pw" 2>/dev/null \
-            || openssl passwd -apr1 "$pw" 2>/dev/null \
-            || echo "not available in this openssl build")
-        echo -e "  ${LABEL}SHA-512 crypt hash:${NC}"
-        echo -e "  ${CYAN}${h}${NC}"
-        echo -e "  ${MUTED}This is how passwords should be stored (salted + stretched).${NC}"
+
+    # Guard interactive read against piped/non-interactive context
+    if [[ ! -t 0 ]]; then
+        log_info "Skipping interactive password hash demo (non-interactive / piped context)"
+        echo -e "  ${MUTED}Run this script directly to hash a custom password.${NC}"
+    else
+        read -rsp "  $(echo -e "${PROMPT}Enter a password to hash:${NC} ")" pw; echo
+        if [[ -n "$pw" ]]; then
+            local h
+            h=$(openssl passwd -6 "$pw" 2>/dev/null \
+                || openssl passwd -apr1 "$pw" 2>/dev/null \
+                || echo "not available in this openssl build")
+            echo -e "  ${LABEL}SHA-512 crypt hash:${NC}"
+            echo -e "  ${CYAN}${h}${NC}"
+            echo -e "  ${MUTED}This is how passwords should be stored (salted + stretched).${NC}"
+        fi
     fi
 
     pause
@@ -457,54 +481,16 @@ INFO
     pause
 }
 
-#  MENU
-show_menu() {
-    clear
-    show_banner
-    echo -e "${BOLD_CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD_CYAN}║      Security Fundamentals — Practical       ║${NC}"
-    echo -e "${BOLD_CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo
-    echo -e "  ${GREEN} 1.${NC}  CIA Triad"
-    echo -e "  ${GREEN} 2.${NC}  Authentication & Authorisation + Password Checker"
-    echo -e "  ${GREEN} 3.${NC}  Symmetric Encryption (AES)"
-    echo -e "  ${GREEN} 4.${NC}  Hashing vs Encryption"
-    echo -e "  ${GREEN} 5.${NC}  Symmetric vs Asymmetric (RSA, ECC)"
-    echo -e "  ${GREEN} 6.${NC}  TLS/SSL Handshake + Protocol Audit"
-    echo -e "  ${GREEN} 7.${NC}  Certificates & CA"
-    echo -e "  ${GREEN} 8.${NC}  Hashing Deep-Dive (SHA, HMAC, File Integrity)"
-    echo -e "  ${GREEN} 9.${NC}  JWT Structure Decoder"
-    echo -e "  ${GOLD}  A.${NC}  Run ALL non-interactive sections"
-    echo -e "  ${RED}  0.${NC}  Back"
-    echo
-    echo -e "  ${MUTED}Output files → ${OUTPUT_DIR}/security_…${NC}"
-    echo
-}
-
 main() {
-    while true; do
-        show_menu
-        read -rp "$(echo -e "  ${PROMPT}Choice:${NC} ")" choice
-        case "$choice" in
-            1) cia_triad ;;
-            2) auth_demo ;;
-            3) encryption_basics ;;
-            4) hash_vs_encrypt ;;
-            5) symmetric_asymmetric ;;
-            6) tls_handshake ;;
-            7) certificates_ca ;;
-            8) hashing_demo ;;
-            9) jwt_demo ;;
-            [aA])
-                cia_triad
-                encryption_basics
-                hashing_demo
-                symmetric_asymmetric
-                ;;
-            0) return 0 ;;
-            *) log_warning "Invalid choice" ;;
-        esac
-    done
+    cia_triad
+    auth_demo
+    encryption_basics
+    hash_vs_encrypt
+    symmetric_asymmetric
+    tls_handshake
+    certificates_ca
+    hashing_demo
+    jwt_demo
 }
 
 main
