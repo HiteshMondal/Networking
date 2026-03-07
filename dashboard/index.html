@@ -14,7 +14,7 @@
     <div class="bg-glow" aria-hidden="true"></div>
 
     <div class="container">
-        <!-- ── Header ─────────────────────────────────────────────────────── -->
+        <!--  Header  -->
         <header class="header" role="banner">
             <div class="header-left">
                 <div class="logo-mark" aria-hidden="true"><span class="logo-icon">⬡</span></div>
@@ -26,7 +26,9 @@
 
             <div class="search-wrapper" role="search">
                 <span class="search-icon" aria-hidden="true">⌕</span>
-                <input type="search" id="globalSearch" class="search-input" placeholder="Search logs…  (Ctrl+F)" aria-label="Search log files" autocomplete="off" spellcheck="false"/>
+                <input type="search" id="globalSearch" class="search-input"
+                       placeholder="Search logs…  (Ctrl+F)"
+                       aria-label="Search log files" autocomplete="off" spellcheck="false"/>
                 <span class="search-count" id="searchCount"></span>
                 <div class="search-results" id="searchResults" role="listbox" aria-label="Search results"></div>
             </div>
@@ -42,7 +44,8 @@
 
             <nav class="header-actions" aria-label="Dashboard actions">
                 <button class="btn btn-ghost btn-sm" onclick="openAlertModal()" title="Alert settings">⚠ Alerts</button>
-                <button class="btn btn-ghost" id="autoRefreshBtn" onclick="toggleAutoRefresh()" aria-pressed="true" title="Toggle auto-refresh">
+                <button class="btn btn-ghost" id="autoRefreshBtn" onclick="toggleAutoRefresh()"
+                        aria-pressed="true" title="Toggle auto-refresh">
                     <span class="btn-icon" aria-hidden="true">⟳</span><span>Auto</span>
                 </button>
                 <button class="btn btn-secondary" onclick="refreshDashboard()" aria-label="Refresh now">
@@ -54,7 +57,7 @@
             </nav>
         </header>
 
-        <!-- ── Stats ──────────────────────────────────────────────────────── -->
+        <!--  Stats  -->
         <section class="stats-grid" aria-label="Execution statistics">
             <article class="stat-card" data-status="total">
                 <div class="stat-top"><span class="stat-label">Total Runs</span><span class="stat-chip chip-neutral">ALL</span></div>
@@ -78,14 +81,15 @@
             </article>
         </section>
 
-        <!-- ── Metrics Row ─────────────────────────────────────────────────── -->
+        <!--  Metrics Row  -->
         <section class="metrics-row" aria-label="Metrics">
             <div class="metric-card metric-ring-card">
                 <div class="metric-label">Success Rate</div>
                 <div class="ring-wrap">
                     <svg class="ring-svg" viewBox="0 0 64 64" aria-hidden="true">
                         <circle class="ring-track" cx="32" cy="32" r="28"/>
-                        <circle class="ring-fill" id="successRing" cx="32" cy="32" r="28" style="stroke-dasharray:175.9;stroke-dashoffset:175.9"/>
+                        <circle class="ring-fill" id="successRing" cx="32" cy="32" r="28"
+                                style="stroke-dasharray:175.9;stroke-dashoffset:175.9"/>
                     </svg>
                     <span class="ring-value" id="successRate">—</span>
                 </div>
@@ -109,11 +113,13 @@
             </div>
         </section>
 
-        <!-- ── System Stats (NEW) ──────────────────────────────────────────── -->
+        <!--  System Stats  -->
         <section class="sys-stats-section" aria-label="System resources" id="sysStatsPanel">
             <div class="sys-section-header">
                 <h2><span class="card-icon" aria-hidden="true">◉</span> System Resources</h2>
-                <span class="badge badge-live sys-live-badge"><span class="pulse-dot" aria-hidden="true"></span>Live · every 5s</span>
+                <span class="badge badge-live sys-live-badge">
+                    <span class="pulse-dot" aria-hidden="true"></span>Live · every 5s
+                </span>
             </div>
             <div class="sys-grid">
                 <!-- CPU -->
@@ -146,12 +152,12 @@
                     <div class="sys-bar-track"><div class="sys-bar-fill level-ok" id="sysDiskBar" style="width:0%"></div></div>
                     <div class="sys-card-sub" id="sysDiskSub">—</div>
                 </div>
-                <!-- Network -->
+                <!-- Network — FIX: removed duplicate id="sysNetErrors" -->
                 <div class="sys-card level-ok" id="sysCardNet">
                     <div class="sys-card-header">
                         <span class="sys-card-icon">⇅</span>
                         <span class="sys-card-label">Network</span>
-                        <span class="sys-card-pct" id="sysNetErrors" style="color:var(--text-muted);font-size:0.72rem">—</span>
+                        <span class="sys-card-pct sys-net-err-badge" id="sysNetErrBadge" style="color:var(--text-muted);font-size:0.72rem">—</span>
                     </div>
                     <div class="sys-net-grid">
                         <div class="sys-net-row"><span>↑ Sent</span><strong id="sysNetSent">—</strong></div>
@@ -160,14 +166,14 @@
                     <div class="sys-card-sub">Errors: <span id="sysNetErrors">0</span></div>
                 </div>
             </div>
-            <!-- Temps (optional) -->
+            <!-- Temperatures (optional) -->
             <div class="sys-temps-row">
                 <span class="sys-temps-label">🌡 Temps:</span>
                 <div id="sysTemps" class="sys-temps-chips">—</div>
             </div>
         </section>
 
-        <!-- ── Content Grid ────────────────────────────────────────────────── -->
+        <!--  Content Grid  -->
         <div class="content-grid">
             <section class="card" aria-labelledby="activity-heading">
                 <div class="card-header">
@@ -176,7 +182,10 @@
                 </div>
                 <div class="card-body" role="feed" aria-label="Recent script executions">
                     <div id="recentActivity" class="activity-list">
-                        <div class="empty-state"><div class="empty-glyph" aria-hidden="true">⬡</div><p>No activity yet. Run a script to get started.</p></div>
+                        <div class="empty-state">
+                            <div class="empty-glyph" aria-hidden="true">⬡</div>
+                            <p>No activity yet. Run a script to get started.</p>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -193,29 +202,42 @@
                 </div>
                 <div class="card-body">
                     <div id="logFiles" class="log-list" role="list" aria-label="Available log files">
-                        <div class="empty-state"><div class="empty-glyph" aria-hidden="true">◫</div><p>No log files available.</p></div>
+                        <div class="empty-state">
+                            <div class="empty-glyph" aria-hidden="true">◫</div>
+                            <p>No log files available.</p>
+                        </div>
                     </div>
                 </div>
             </section>
         </div>
 
-        <!-- ── Execution History ───────────────────────────────────────────── -->
+        <!--  Execution History  -->
         <section class="card card-full" aria-labelledby="history-heading">
             <div class="card-header">
                 <h2 id="history-heading"><span class="card-icon" aria-hidden="true">◈</span> Execution History</h2>
                 <div class="card-header-controls">
                     <label for="sourceFilter" class="sr-only">Filter by source</label>
                     <select class="filter-select" id="sourceFilter" onchange="filterHistory()">
-                        <option value="all">All Sources</option><option value="script">Scripts</option><option value="tool">Tools</option>
+                        <option value="all">All Sources</option>
+                        <option value="script">Scripts</option>
+                        <option value="tool">Tools</option>
                     </select>
                     <label for="scriptFilter" class="sr-only">Filter by category</label>
                     <select class="filter-select" id="scriptFilter" onchange="filterHistory()">
-                        <option value="all">All Categories</option><option value="network">Network</option><option value="security">Security</option>
-                        <option value="forensic">Forensics</option><option value="recon">Recon</option><option value="system">System</option><option value="other">Other</option>
+                        <option value="all">All Categories</option>
+                        <option value="network">Network</option>
+                        <option value="security">Security</option>
+                        <option value="forensic">Forensics</option>
+                        <option value="recon">Recon</option>
+                        <option value="system">System</option>
+                        <option value="other">Other</option>
                     </select>
                     <label for="statusFilter" class="sr-only">Filter by status</label>
                     <select class="filter-select" id="statusFilter" onchange="filterHistory()">
-                        <option value="all">All Statuses</option><option value="success">Success</option><option value="warning">Warning</option><option value="error">Error</option>
+                        <option value="all">All Statuses</option>
+                        <option value="success">Success</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
                     </select>
                 </div>
             </div>
@@ -223,25 +245,41 @@
                 <div class="table-container" role="region" aria-label="Script execution history" tabindex="0">
                     <table class="data-table" aria-describedby="history-heading">
                         <thead><tr>
-                            <th scope="col">Timestamp</th><th scope="col">Script / Tool</th><th scope="col">Category</th>
-                            <th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Size</th>
+                            <th scope="col">Timestamp</th>
+                            <th scope="col">Script / Tool</th>
+                            <th scope="col">Source</th>
+                            <th scope="col">Category</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Duration</th>
+                            <th scope="col">Size</th>
                             <th scope="col"><span class="sr-only">Actions</span></th>
                         </tr></thead>
-                        <tbody id="historyTable"><tr><td colspan="7" class="empty-row">No execution history yet</td></tr></tbody>
+                        <tbody id="historyTable">
+                            <tr><td colspan="8" class="empty-row">No execution history yet</td></tr>
+                        </tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <!-- ── Output Files ────────────────────────────────────────────────── -->
+        <!--  Output Files  -->
         <section class="card card-full" aria-labelledby="outputs-heading">
             <div class="card-header">
                 <h2 id="outputs-heading"><span class="card-icon" aria-hidden="true">◪</span> Output Files</h2>
-                <span class="badge badge-info" id="outputCount" role="status">0 files</span>
+                <div class="card-header-controls">
+                    <label for="outputGroupFilter" class="sr-only">Filter by group</label>
+                    <select class="filter-select" id="outputGroupFilter" onchange="filterOutputFiles()">
+                        <option value="all">All Groups</option>
+                    </select>
+                    <span class="badge badge-info" id="outputCount" role="status">0 files</span>
+                </div>
             </div>
-            <div class="card-body">
-                <div id="outputFiles" class="file-grid" role="list" aria-label="Generated output files">
-                    <div class="empty-state"><div class="empty-glyph" aria-hidden="true">◫</div><p>No output files generated yet.</p></div>
+            <div class="card-body card-body-outputs">
+                <div id="outputFiles" class="output-section-list" role="list" aria-label="Generated output files">
+                    <div class="empty-state">
+                        <div class="empty-glyph" aria-hidden="true">◫</div>
+                        <p>No output files generated yet.</p>
+                    </div>
                 </div>
             </div>
         </section>
@@ -249,19 +287,21 @@
         <footer class="footer" role="contentinfo">
             <span class="footer-logo" aria-hidden="true">⬡</span>
             <span>Networking &amp; Cybersecurity Automation Toolkit</span>
-            <span class="footer-sep" aria-hidden="true">·</span><span>v3.0</span>
+            <span class="footer-sep" aria-hidden="true">·</span><span>v3.1</span>
             <span class="footer-sep" aria-hidden="true">·</span>
             <span class="footer-hint">Ctrl+F to search · Ctrl+R to refresh</span>
         </footer>
     </div>
 
-    <!-- ── Log Viewer Modal ────────────────────────────────────────────────── -->
+    <!--  Log Viewer Modal  -->
     <div id="logModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="modalTitle">Log Viewer</h2>
                 <div class="modal-header-right">
-                    <span class="tail-badge" id="tailBadge" aria-live="polite"><span class="tail-dot" aria-hidden="true"></span>LIVE</span>
+                    <span class="tail-badge" id="tailBadge" aria-live="polite">
+                        <span class="tail-dot" aria-hidden="true"></span>LIVE
+                    </span>
                     <button class="modal-close" onclick="closeModal()" aria-label="Close log viewer">✕</button>
                 </div>
             </div>
@@ -277,7 +317,7 @@
         </div>
     </div>
 
-    <!-- ── Share Modal (NEW) ──────────────────────────────────────────────── -->
+    <!--  Share Modal  -->
     <div id="shareModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
         <div class="modal-content modal-share">
             <div class="modal-header">
@@ -286,30 +326,16 @@
             </div>
             <div class="share-modal-body">
                 <p class="share-name" id="shareTitle">—</p>
-
-                <!-- Social buttons -->
                 <div class="share-socials">
-                    <button class="social-btn twitter" onclick="shareToTwitter()">
-                        <span class="social-icon">𝕏</span><span>Twitter / X</span>
-                    </button>
-                    <button class="social-btn linkedin" onclick="shareToLinkedIn()">
-                        <span class="social-icon">in</span><span>LinkedIn</span>
-                    </button>
-                    <button class="social-btn reddit" onclick="shareToReddit()">
-                        <span class="social-icon">⬆</span><span>Reddit</span>
-                    </button>
-                    <button class="social-btn copy" onclick="copyShareLink()">
-                        <span class="social-icon">⧉</span><span>Copy Text</span>
-                    </button>
+                    <button class="social-btn twitter"  onclick="shareToTwitter()"><span class="social-icon">𝕏</span><span>Twitter / X</span></button>
+                    <button class="social-btn linkedin" onclick="shareToLinkedIn()"><span class="social-icon">in</span><span>LinkedIn</span></button>
+                    <button class="social-btn reddit"   onclick="shareToReddit()"><span class="social-icon">⬆</span><span>Reddit</span></button>
+                    <button class="social-btn copy"     onclick="copyShareLink()"><span class="social-icon">⧉</span><span>Copy Text</span></button>
                 </div>
-
-                <!-- Preview -->
                 <div class="share-preview">
                     <div class="share-preview-label">Preview</div>
                     <pre id="sharePreviewText" class="share-preview-text"></pre>
                 </div>
-
-                <!-- Email form -->
                 <div class="share-email-section">
                     <div class="share-email-label">📧 Send via Email</div>
                     <div class="share-email-form">
@@ -324,7 +350,7 @@
         </div>
     </div>
 
-    <!-- ── Alert Settings Modal (NEW) ────────────────────────────────────── -->
+    <!--  Alert Settings Modal  -->
     <div id="alertModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="alertModalTitle">
         <div class="modal-content modal-alert">
             <div class="modal-header">
@@ -333,7 +359,6 @@
             </div>
             <div class="alert-modal-body">
                 <p class="alert-hint">Set warn/critical thresholds for system resource monitoring.</p>
-
                 <div class="alert-grid">
                     <div class="alert-group">
                         <div class="alert-group-label">⚙ CPU (%)</div>
@@ -357,7 +382,6 @@
                         </div>
                     </div>
                 </div>
-
                 <div class="alert-email-section">
                     <div class="alert-group-label">📧 Email Alerts</div>
                     <input type="email" id="alertEmailTo" class="share-input" placeholder="alert-recipient@example.com"/>
@@ -365,10 +389,9 @@
                         <input type="checkbox" id="alertEmailNotify"/> Enable email notifications on critical
                     </label>
                 </div>
-
                 <div class="alert-actions">
                     <button class="btn btn-secondary" onclick="closeAlertModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="saveAlertSettings()">Save Settings</button>
+                    <button class="btn btn-primary"   onclick="saveAlertSettings()">Save Settings</button>
                 </div>
             </div>
         </div>
