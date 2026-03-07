@@ -68,46 +68,6 @@ show_main_menu() {
     echo -e "${BORDER}${border}${NC}"
 }
 
-# Script selection menu
-show_script_menu() {
-    clear
-    show_banner
-
-    local W=50
-    local border
-    border=$(printf '%*s' "$W" '' | tr ' ' '=')
-
-    echo -e "${BORDER}${border}${NC}"
-    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "SECURITY SCRIPTS"
-    echo -e "${BORDER}${border}${NC}"
-    echo
-
-    echo -e "  ${AMBER}Network Analysis${NC}"
-    echo -e "  ${GREEN}  1.${NC}  Detect Suspicious Network Activity"
-    echo
-
-    echo -e "  ${AMBER}System Security${NC}"
-    echo -e "  ${GREEN}  2.${NC}  Secure System"
-    echo -e "  ${GREEN}  3.${NC}  Revert Security Changes"
-    echo
-
-    echo -e "  ${AMBER}Information Gathering${NC}"
-    echo -e "  ${GREEN}  4.${NC}  System Information"
-    echo
-
-    echo -e "  ${AMBER}Forensics${NC}"
-    echo -e "  ${GREEN}  5.${NC}  Forensic Data Collection"
-    echo
-
-    echo -e "  ${AMBER}Reconnaissance${NC}"
-    echo -e "  ${GREEN}  6.${NC}  Web Reconnaissance"
-    echo
-
-    echo -e "  ${RED}  0.${NC}  Back to Main Menu"
-    echo
-    echo -e "${BORDER}${border}${NC}"
-}
-
 # View logs
 view_logs() {
     clear

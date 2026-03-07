@@ -91,12 +91,19 @@ _tools_menu() {
     echo -e "  ${GREEN}  1.${NC}  Network Tools             ${MUTED}Interfaces, ports, ping, traceroute${NC}"
     echo -e "  ${GREEN}  2.${NC}  Core Protocols            ${MUTED}TCP/UDP, HTTP, DNS, ICMP${NC}"
     echo -e "  ${GREEN}  3.${NC}  IP Addressing             ${MUTED}Subnetting, NAT, ARP${NC}"
+    echo -e "  ${GREEN}  4.${NC}  Packet Analysis           ${MUTED}Headers, Wireshark filters, PCAP, baselining${NC}"
     echo
     echo -e "  ${AMBER}Education & Reference${NC}"
-    echo -e "  ${GREEN}  4.${NC}  Network Master            ${MUTED}All networking topics${NC}"
-    echo -e "  ${GREEN}  5.${NC}  Networking Basics         ${MUTED}OSI, TCP/IP, bandwidth, switching${NC}"
-    echo -e "  ${GREEN}  6.${NC}  Switching & Routing       ${MUTED}VLANs, MAC, RIP/OSPF/BGP${NC}"
-    echo -e "  ${GREEN}  7.${NC}  Security Fundamentals     ${MUTED}CIA, AES, RSA, TLS, hashing${NC}"
+    echo -e "  ${GREEN}  5.${NC}  Network Master            ${MUTED}All networking topics${NC}"
+    echo -e "  ${GREEN}  6.${NC}  Networking Basics         ${MUTED}OSI, TCP/IP, bandwidth, switching${NC}"
+    echo -e "  ${GREEN}  7.${NC}  Switching & Routing       ${MUTED}VLANs, MAC, RIP/OSPF/BGP${NC}"
+    echo -e "  ${GREEN}  8.${NC}  Security Fundamentals     ${MUTED}CIA, AES, RSA, TLS, hashing${NC}"
+    echo
+    echo -e "  ${AMBER}Advanced Security${NC}"
+    echo -e "  ${GREEN}  9.${NC}  Wireless Security         ${MUTED}WiFi standards, WPA3, attacks, hardening${NC}"
+    echo -e "  ${GREEN} 10.${NC}  Firewall & IDS/IPS        ${MUTED}iptables, nftables, Snort, WAF, fail2ban${NC}"
+    echo -e "  ${GREEN} 11.${NC}  Network Hardening         ${MUTED}SSH, DMZ, Zero Trust, VPN, honeypots, SIEM${NC}"
+    echo -e "  ${GREEN} 12.${NC}  Threat Intelligence       ${MUTED}OSINT, CVE/CVSS, Kill Chain, ATT&CK, hunting${NC}"
     echo
     echo -e "  ${RED}  0.${NC}  Back to Main Menu"
     echo
@@ -111,13 +118,18 @@ tools() {
         read -rp "$(echo -e "  ${PROMPT}[?] Choose an option: ${NC}")" tools_choice
         echo
         case "$tools_choice" in
-            1) _launch "Network Tools"          "tools/network_tools.sh"         ;;
-            2) _launch "Core Protocols"         "tools/core_protocols.sh"        ;;
-            3) _launch "IP Addressing"          "tools/ip_addressing.sh"         ;;
-            4) _launch "Network Master"         "tools/network_master.sh"        ;;
-            5) _launch "Networking Basics"      "tools/networking_basics.sh"     ;;
-            6) _launch "Switching & Routing"    "tools/switching_routing.sh"     ;;
-            7) _launch "Security Fundamentals"  "tools/security_fundamentals.sh" ;;
+            1)  _launch "Network Tools"          "tools/network_tools.sh"         ;;
+            2)  _launch "Core Protocols"         "tools/core_protocols.sh"        ;;
+            3)  _launch "IP Addressing"          "tools/ip_addressing.sh"         ;;
+            4)  _launch "Packet Analysis"        "tools/packet_analysis.sh"       ;;
+            5)  _launch "Network Master"         "tools/network_master.sh"        ;;
+            6)  _launch "Networking Basics"      "tools/networking_basics.sh"     ;;
+            7)  _launch "Switching & Routing"    "tools/switching_routing.sh"     ;;
+            8)  _launch "Security Fundamentals"  "tools/security_fundamentals.sh" ;;
+            9)  _launch "Wireless Security"      "tools/wireless_security.sh"     ;;
+            10) _launch "Firewall & IDS/IPS"     "tools/firewall_ids.sh"          ;;
+            11) _launch "Network Hardening"      "tools/network_hardening.sh"     ;;
+            12) _launch "Threat Intelligence"    "tools/threat_intelligence.sh"   ;;
             0)
                 log_info "Returning to main menu..."
                 return 0

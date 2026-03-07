@@ -12,6 +12,47 @@ source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/config/settings.conf"
 
+# Script selection menu
+show_script_menu() {
+    clear
+    show_banner
+
+    local W=50
+    local border
+    border=$(printf '%*s' "$W" '' | tr ' ' '=')
+
+    echo -e "${BORDER}${border}${NC}"
+    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "SECURITY SCRIPTS"
+    echo -e "${BORDER}${border}${NC}"
+    echo
+    echo -e "  ${AMBER}Network Analysis${NC}"
+    echo -e "  ${GREEN}  1.${NC}  Detect Suspicious Network Activity"
+    echo
+    echo -e "  ${AMBER}System Security${NC}"
+    echo -e "  ${GREEN}  2.${NC}  Secure System"
+    echo -e "  ${GREEN}  3.${NC}  Revert Security Changes"
+    echo
+    echo -e "  ${AMBER}Information Gathering${NC}"
+    echo -e "  ${GREEN}  4.${NC}  System Information"
+    echo
+    echo -e "  ${AMBER}Forensics${NC}"
+    echo -e "  ${GREEN}  5.${NC}  Forensic Data Collection"
+    echo
+    echo -e "  ${AMBER}Reconnaissance${NC}"
+    echo -e "  ${GREEN}  6.${NC}  Web Reconnaissance"
+    echo
+    echo -e "  ${AMBER}Threat Detection${NC}"
+    echo -e "  ${GREEN}  7.${NC}  Malware Analysis"
+    echo -e "  ${GREEN}  8.${NC}  Lateral Movement Detection"
+    echo -e "  ${GREEN}  9.${NC}  Log Analysis"
+    echo -e "  ${GREEN} 10.${NC}  Cloud Exposure Audit"
+    echo -e "  ${GREEN} 11.${NC}  Data Exfiltration Detection"
+    echo
+    echo -e "  ${RED}  0.${NC}  Back to Main Menu"
+    echo
+    echo -e "${BORDER}${border}${NC}"
+}
+
 #  EXECUTE SCRIPT
 execute_script() {
     local script_path=$1
@@ -52,6 +93,21 @@ execute_script() {
         forensic_collect.sh)
             script_timeout=400
             ;;
+        malware_analysis.sh)
+            script_timeout=600
+            ;;
+        lateral_movement_detect.sh)
+            script_timeout=300
+            ;;
+        log_analysis.sh)
+            script_timeout=300
+            ;;
+        cloud_exposure_audit.sh)
+            script_timeout=200
+            ;;
+        data_exfil_detect.sh)
+            script_timeout=300
+            ;;
         *)
             script_timeout=200
             ;;
@@ -79,6 +135,26 @@ execute_script() {
         detect_suspicious_net_linux.sh)
             echo -e "  ${WARNING}[~] This script may take several minutes to complete.${NC}"
             echo -e "  ${MUTED}    Press 'q' at any time to cancel.${NC}"
+            ;;
+        malware_analysis.sh)
+            echo -e "  ${WARNING}[~] Performs static & dynamic analysis. May take several minutes.${NC}"
+            echo -e "  ${MUTED}    Press 'q' at any time to cancel.${NC}"
+            ;;
+        lateral_movement_detect.sh)
+            echo -e "  ${WARNING}[~] Analyses auth logs and network state for lateral movement.${NC}"
+            echo -e "  ${MUTED}    Some checks require root for full results.${NC}"
+            ;;
+        log_analysis.sh)
+            echo -e "  ${WARNING}[~] Parses system logs and hunts for threat indicators.${NC}"
+            echo -e "  ${MUTED}    Some checks require root for full log access.${NC}"
+            ;;
+        cloud_exposure_audit.sh)
+            echo -e "  ${WARNING}[~] Probes cloud metadata services and container security.${NC}"
+            echo -e "  ${MUTED}    IMDS probes are read-only and non-destructive.${NC}"
+            ;;
+        data_exfil_detect.sh)
+            echo -e "  ${WARNING}[~] Scans for data exfiltration channels and staged sensitive data.${NC}"
+            echo -e "  ${MUTED}    DLP scan covers /tmp, /home, /root, /var/tmp.${NC}"
             ;;
     esac
     echo
@@ -181,6 +257,11 @@ run_script() {
         4) execute_script "$SCRIPT_DIR/system_info.sh"                 ;;
         5) execute_script "$SCRIPT_DIR/forensic_collect.sh"            ;;
         6) execute_script "$SCRIPT_DIR/web_recon.sh"                   ;;
+        7) execute_script "$SCRIPT_DIR/malware_analysis.sh"            ;;
+        8) execute_script "$SCRIPT_DIR/lateral_movement_detect.sh"     ;;
+        9) execute_script "$SCRIPT_DIR/log_analysis.sh"                ;;
+        10) execute_script "$SCRIPT_DIR/cloud_exposure_audit.sh"       ;;
+        11) execute_script "$SCRIPT_DIR/data_exfil_detect.sh"          ;;
         0) return ;;
         *)
             log_error "Invalid choice: '${choice}'"
