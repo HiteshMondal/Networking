@@ -7,10 +7,10 @@ set -o pipefail
 # /run.sh
 
 # Root check
-if [[ "$EUID" -ne 0 ]]; then
+if [[ $EUID -ne 0 ]]; then
     echo ""
     echo "  [!] This script must be run with sudo or as root."
-    echo "  [>] Run:  sudo $0"
+    echo "  [>] Run: sudo $0"
     echo ""
     exit 1
 fi
@@ -22,23 +22,20 @@ export PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 source "$PROJECT_ROOT/config/settings.conf"
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
-source "$PROJECT_ROOT/scripts/run_script.sh"
-source "$PROJECT_ROOT/tools/tools.sh"
+source "$PROJECT_ROOT/modules/run_modules.sh"
+source "$PROJECT_ROOT/network_lab/network_lab.sh"
 source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
 
 # Directory setup
-SCRIPT_DIR="$PROJECT_ROOT/scripts"
+MODULES_DIR="$PROJECT_ROOT/modules"
 LOG_DIR="$PROJECT_ROOT/logs"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
-TOOLS="$PROJECT_ROOT/tools"
 
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 touch "$LOG_DIR/main.log"
 
-#  DISPLAY FUNCTIONS
-
-# Main menu
+# MAIN MENU
 show_main_menu() {
     local W=50
     local border
@@ -49,7 +46,7 @@ show_main_menu() {
     echo -e "${BORDER}${border}${NC}"
     echo
     echo -e "  ${LABEL}SECURITY${NC}"
-    echo -e "  ${GREEN}  1.${NC}  Run Security Scripts"
+    echo -e "  ${GREEN}  1.${NC}  Run Security Modules"
     echo
     echo -e "  ${LABEL}MONITORING${NC}"
     echo -e "  ${GREEN}  2.${NC}  View Dashboard"
@@ -60,15 +57,15 @@ show_main_menu() {
     echo -e "  ${GREEN}  4.${NC}  Clean Logs & Output"
     echo -e "  ${GREEN}  5.${NC}  System Information"
     echo
-    echo -e "  ${LABEL}TOOLS${NC}"
-    echo -e "  ${GREEN}  6.${NC}  Network Tools"
+    echo -e "  ${LABEL}NETWORK LAB${NC}"
+    echo -e "  ${GREEN}  6.${NC}  Network Lab"
     echo
     echo -e "  ${RED}  0.${NC}  Exit"
     echo
     echo -e "${BORDER}${border}${NC}"
 }
 
-# View logs
+# VIEW LOGS
 view_logs() {
     clear
     show_banner
@@ -82,7 +79,8 @@ view_logs() {
     echo -e "${BORDER}${border}${NC}"
     echo
 
-    if [ "$(ls -A "$LOG_DIR" 2>/dev/null)" ]; then
+    if [[ -n "$(ls -A "$LOG_DIR" 2>/dev/null)" ]]; then
+
         echo -e "  ${LABEL}Available log files:${NC}"
         echo
         ls -lht "$LOG_DIR" | head -n 11 | sed 's/^/  /'
@@ -90,44 +88,31 @@ view_logs() {
         echo -e "  ${MUTED}$(printf '%*s' 46 '' | tr ' ' '-')${NC}"
         read -rp "$(echo -e "  ${PROMPT}[?] Enter filename to view, or 'q' to go back: ${NC}")" log_choice
 
-        if [[ "$log_choice" != "q" ]] && [ -f "$LOG_DIR/$log_choice" ]; then
+        if [[ "$log_choice" != "q" && -f "$LOG_DIR/$log_choice" ]]; then
             less "$LOG_DIR/$log_choice"
         fi
     else
-        echo -e "  ${MUTED}No logs found. Run some scripts first.${NC}"
+        echo -e "  ${MUTED}No logs found. Run some modules first.${NC}"
     fi
 
     echo
     read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
 
-# Clean data
+# CLEAN DATA
 clean_data() {
     clear
     show_banner
 
-    local W=50
-    local border
-    border=$(printf '%*s' "$W" '' | tr ' ' '=')
-
-    echo -e "${BORDER}${border}${NC}"
-    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "CLEAN LOGS & OUTPUT"
-    echo -e "${BORDER}${border}${NC}"
-    echo
-    echo -e "  ${FAILURE}[!] WARNING: This will permanently delete all logs and output files!${NC}"
-    echo
-    echo -e "  ${MUTED}Log directory   : ${LOG_DIR}${NC}"
-    echo -e "  ${MUTED}Output directory: ${OUTPUT_DIR}${NC}"
+    echo -e "  ${FAILURE}[!] WARNING: This will permanently delete all logs and output files!"
     echo
 
     read -rp "$(echo -e "  ${WARNING}[?] Are you sure? [yes/no]: ${NC}")" confirm
 
     if [[ "$confirm" == "yes" ]]; then
-        rm -rf "$LOG_DIR"/* "$OUTPUT_DIR"/*
-        echo
+        rm -rf "${LOG_DIR:?}/"* "${OUTPUT_DIR:?}/"*
         log_success "Cleaned successfully."
     else
-        echo
         log_info "Operation cancelled."
     fi
 
@@ -135,106 +120,79 @@ clean_data() {
     read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
 
-# System info
+# SYSTEM INFO
 show_system_info() {
     clear
     show_banner
 
-    local W=50
-    local border
-    border=$(printf '%*s' "$W" '' | tr ' ' '=')
-
-    echo -e "${BORDER}${border}${NC}"
-    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "SYSTEM INFORMATION"
-    echo -e "${BORDER}${border}${NC}"
-    echo
-
     echo -e "  ${AMBER}Host${NC}"
     kv "  Operating System" "$(detect_os)"
-    kv "  Hostname"         "$(hostname)"
-    kv "  User"             "$(whoami)"
-    kv "  Date"             "$(date '+%Y-%m-%d %H:%M:%S')"
-    kv "  Uptime"           "$(uptime -p 2>/dev/null || uptime)"
+    kv "  Hostname" "$(hostname)"
+    kv "  User" "$(whoami)"
+    kv "  Date" "$(date '+%Y-%m-%d %H:%M:%S')"
+    kv "  Uptime" "$(uptime -p 2>/dev/null || uptime)"
     echo
-
     echo -e "  ${AMBER}Toolkit${NC}"
-    kv "  Log files"        "$(find "$LOG_DIR"    -type f 2>/dev/null | wc -l)"
-    kv "  Output files"     "$(find "$OUTPUT_DIR" -type f 2>/dev/null | wc -l)"
-    kv "  Scripts"          "$(find "$SCRIPT_DIR" -type f 2>/dev/null | wc -l)"
+
+    kv "  Log files" "$(find "$LOG_DIR" -type f 2>/dev/null | wc -l)"
+    kv "  Output files" "$(find "$OUTPUT_DIR" -type f 2>/dev/null | wc -l)"
+    kv "  Modules" "$(find "$MODULES_DIR" -name '*.sh' ! -name 'run_modules.sh' | wc -l)"
+
     echo
 
-    echo -e "  ${AMBER}Dashboard${NC}"
-    if [ -f "$PID_FILE" ]; then
-        local pid
+    if [[ -f "$PID_FILE" ]]; then
         pid=$(cat "$PID_FILE")
         if kill -0 "$pid" 2>/dev/null; then
-            kv "  Status" "$(echo -e "${SUCCESS}Running${NC} (PID: ${pid})")"
+            kv "  Dashboard" "${SUCCESS}Running${NC} (PID: ${pid})"
         else
-            kv "  Status" "$(echo -e "${FAILURE}Not running (stale PID)${NC}")"
+            kv "  Dashboard" "${FAILURE}Not running (stale PID)"
         fi
     else
-        kv "  Status" "$(echo -e "${MUTED}Not running${NC}")"
+        kv "  Dashboard" "${MUTED}Not running${NC}"
     fi
-
     echo
     read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
 
-#  CLEANUP
+# CLEANUP
 cleanup() {
     echo
     log_info "Toolkit shutting down..."
 }
 
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
-#  MAIN LOOP
+# MAIN LOOP
 main() {
-    if [ ! -d "$PROJECT_ROOT/lib" ]; then
-        echo -e "${FAILURE}[!] Error: Required libraries not found.${NC}"
-        echo -e "${WARNING}[~] Please run the setup steps from the documentation.${NC}"
-        exit 1
-    fi
-
     while true; do
         clear
         show_banner
         show_main_menu
 
-        echo -e -n "  "
-        read -rp "$(echo -e "${PROMPT}[?] Enter your choice: ${NC}")" choice
-
+        read -rp "$(echo -e "  ${PROMPT}[?] Enter your choice: ${NC}")" choice
         echo
 
         case $choice in
             1)
                 while true; do
-                    show_script_menu
-                    echo -e -n "  "
-                    read -rp "$(echo -e "${PROMPT}[?] Enter your choice: ${NC}")" script_choice
+                    show_modules_menu
+                    read -rp "$(echo -e "  ${PROMPT}[?] Enter your choice: ${NC}")" module_choice
 
-                    if [[ "$script_choice" == "0" ]]; then
-                        break
-                    fi
+                    [[ "$module_choice" == "0" ]] && break
 
-                    run_script "$script_choice"
+                    run_modules "$module_choice"
                 done
                 ;;
             2) start_dashboard_main ;;
             3) view_logs ;;
             4) clean_data ;;
             5) show_system_info ;;
-            6) tools ;;
-            7)
-                source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
-                stop_dashboard
-                echo
-                read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
-                ;;
+            6) network_lab ;;
+            7) stop_dashboard ;;
             0)
                 clear
                 show_banner
-                echo -e "  ${SUCCESS}[+] Thank you for using the Networking & Cybersecurity Toolkit!${NC}"
+                echo -e "  ${SUCCESS}[+] Thank you for using the Networking & Cybersecurity Toolkit!"
                 echo
                 exit 0
                 ;;
