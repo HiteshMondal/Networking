@@ -1,21 +1,15 @@
 #!/bin/bash
 
-# /tools/packet_analysis.sh
+# /network_lab/diagnostics/packet_analysis.sh
 # Topic: Packet Analysis & Protocol Dissection — Interactive Lab
-# Covers: Ethernet/IP/TCP/UDP headers bit-by-bit, Wireshark filters,
-#         traffic baselining, protocol dissection, PCAP analysis
+# Covers: Ethernet/IP/TCP/UDP headers, Wireshark filters, traffic baselining, PCAP analysis
 
-# Bootstrap
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-: "${PROJECT_ROOT:="$(dirname "$_SELF_DIR")"}"
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
-: "${LOG_DIR:="${PROJECT_ROOT}/logs"}"
-: "${OUTPUT_DIR:="${PROJECT_ROOT}/output"}"
-mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
-
-#  ETHERNET FRAME ANATOMY
+# ETHERNET FRAME ANATOMY
 check_ethernet_frame() {
     header "Ethernet Frame — Layer 2 Header Anatomy"
 
@@ -66,9 +60,6 @@ INFO
 
     section "MTU & Fragmentation"
     echo -e "${INFO}Interface MTU values:${NC}"
-    ip link show 2>/dev/null | grep -oP '(?<=mtu )\d+ \S+' | while read -r mtu iface; do
-        printf "  ${LABEL}MTU:${NC} ${GOLD}%-6s${NC}\n" "$mtu"
-    done
     ip link show 2>/dev/null | awk '/mtu/{printf "  %-14s MTU: %s\n", $2, $5}' | head -10
 
     echo
@@ -77,7 +68,7 @@ INFO
         || echo -e "  ${MUTED}PMTUD test unavailable${NC}"
 }
 
-#  IP HEADER ANATOMY
+# IP HEADER ANATOMY
 check_ip_header() {
     header "IPv4 Header — Layer 3 Anatomy"
 
@@ -136,7 +127,6 @@ TABLE
     64   → Linux, macOS, FreeBSD, iOS, Android
     128  → Windows (all versions)
     255  → Cisco IOS, network devices, Solaris
-    64   → OpenBSD
   Actual observed TTL = Initial TTL − hop count
 INFO
 
@@ -170,19 +160,12 @@ INFO
   │            Destination Address (128 bits / 16 bytes)       │
   └────────────────────────────────────────────────────────────┘
 
-  Next Header (replaces Protocol field):
-    0   = Hop-by-Hop Options
-    43  = Routing Header
-    44  = Fragment Header (IPv6 only fragments at source)
-    50  = ESP, 51 = AH (IPSec)
-    58  = ICMPv6
-    59  = No Next Header
-    60  = Destination Options
-    6/17= TCP/UDP (same as IPv4)
+  Next Header values: 0=Hop-by-Hop, 43=Routing, 44=Fragment,
+    50=ESP, 51=AH, 58=ICMPv6, 59=No Next Header, 6/17=TCP/UDP
 INFO
 }
 
-#  TCP HEADER ANATOMY
+# TCP HEADER ANATOMY
 check_tcp_header() {
     header "TCP Header — Layer 4 Anatomy"
 
@@ -203,27 +186,11 @@ check_tcp_header() {
        128-159 │   Checksum    │    Urgent Pointer      │
                └───────────────────────────────────────┘
 
-  TCP Flags (9 bits — the 6 main ones):
+  TCP Flags (9 bits):
     NS  CWR ECE URG  ACK  PSH  RST  SYN  FIN
-    — Congestion Window Reduced (ECN)
-        — ECN Echo
-            — Urgent pointer field significant
-                 — Acknowledge field significant
-                      — Push function — deliver data now
-                           — Connection reset
-                                — Synchronize sequence numbers
-                                     — Finish sending
-
-  Window Size: Receiver's buffer space (max 65535, scaled with TCP options)
-  Sequence #: Position of first data byte in the stream (32-bit)
-  ACK #:      Next byte expected from the other side
 
   TCP Options (common):
-    MSS        — Maximum Segment Size (negotiated in SYN)
-    Window Scale— Extend window size beyond 65535 (RFC 7323)
-    SACK       — Selective ACK: acknowledge non-contiguous blocks
-    Timestamps — RTT measurement, PAWS (Protection Against Wrapped Seq)
-    NOP        — 1-byte padding
+    MSS, Window Scale, SACK, Timestamps, NOP
 INFO
 
     section "TCP Flag Combinations & Meaning"
@@ -286,7 +253,7 @@ INFO
     ss -s 2>/dev/null | grep -E "TCP|estab|closed|orphan|timewait" | sed 's/^/  /'
 }
 
-#  UDP HEADER & OTHER PROTOCOLS
+# UDP HEADER & OTHER PROTOCOLS
 check_udp_other_headers() {
     header "UDP, ICMP & Other Protocol Headers"
 
@@ -298,7 +265,6 @@ check_udp_other_headers() {
   │    Length     │   Checksum    │  (2+2 bytes)
   └───────────────┴───────────────┘
   Total: 8 bytes fixed. No connection, no reliability, no ordering.
-  Checksum covers UDP pseudo-header + header + data.
   Checksum is optional in IPv4 (0x0000 = not computed).
 
   UDP use cases:
@@ -321,18 +287,9 @@ INFO
   │                Type-specific data                        │
   └──────────────────────────────────────────────────────────┘
 
-  Echo (Type 8) / Reply (Type 0):
-  ┌───────┬────────┬──────────┬────────────┬──────────────────┐
-  │ T=8/0 │ Code=0 │ Checksum │ Identifier │ Sequence Number  │
-  │       │        │          │ (2 bytes)  │  (2 bytes)       │
-  └───────┴────────┴──────────┴────────────┴──────────────────┘
-  Identifier = process PID (tracks which ping instance)
-  Sequence   = incremented per packet (detects loss)
-
   Traceroute mechanism:
     Send UDP/ICMP with TTL=1,2,3...N
     Each router decrements TTL; at TTL=0 → sends ICMP Time Exceeded (Type 11)
-    Source IP of Time Exceeded = that hop's address
     Final destination → ICMP Port Unreachable (Type 3 Code 3) or Echo Reply
 INFO
 
@@ -342,29 +299,11 @@ INFO
   Runs over UDP, provides:
     ✓ Reliable delivery (sequence numbers + ACKs in QUIC layer)
     ✓ Stream multiplexing (no head-of-line blocking like HTTP/2 over TCP)
-    ✓ 0-RTT and 1-RTT connection establishment (vs 2-RTT for TLS 1.3+TCP)
+    ✓ 0-RTT and 1-RTT connection establishment
     ✓ Connection migration (survive IP/port changes on mobile)
     ✓ Mandatory encryption (TLS 1.3 integrated)
 
   HTTP/3 = HTTP/2 semantics over QUIC
-  Used by: Google, Cloudflare, Facebook, YouTube (>25% of web traffic)
-INFO
-
-    section "GRE & Tunnel Protocols"
-    cat << 'INFO'
-  GRE (Generic Routing Encapsulation) — IP Protocol 47
-    Wraps any network-layer packet in an IP packet.
-    Used for: VPN tunnels, MPLS, ERSPAN (remote port mirroring)
-    GRE header: 4 bytes minimum (flags + protocol type)
-
-  IPSec — IP Protocol 50 (ESP) / 51 (AH)
-    ESP (Encapsulating Security Payload): encrypts + authenticates
-    AH  (Authentication Header): authenticates only, no encryption
-    Modes: Transport (host-to-host) vs Tunnel (gateway-to-gateway)
-
-  VXLAN (Virtual eXtensible LAN) — UDP 4789
-    Extends Layer 2 over Layer 3 (24-bit VNI = 16M segments vs 4K VLANs)
-    Used in overlay networks (Docker, OpenStack, VMware NSX)
 INFO
 
     section "Live UDP Traffic Analysis"
@@ -374,14 +313,13 @@ INFO
     done
 }
 
-#  WIRESHARK FILTERS
+# WIRESHARK FILTERS
 check_wireshark_filters() {
     header "Wireshark & tcpdump Filters"
 
     section "BPF (Berkeley Packet Filter) Syntax — tcpdump"
     cat << 'INFO'
   BPF filters are applied at capture time (kernel space — efficient).
-  Syntax is concise and port/protocol oriented.
 
   Primitives:
     host 192.168.1.1              — src or dst is this IP
@@ -389,37 +327,29 @@ check_wireshark_filters() {
     dst host 10.0.0.1             — destination IP only
     net 10.0.0.0/24               — any IP in subnet
     port 443                      — src or dst port 443
-    src port 53                   — source port 53
     portrange 1024-65535          — port range
     proto tcp / proto udp / icmp  — protocol filter
     ether host aa:bb:cc:dd:ee:ff  — MAC address filter
-    ether broadcast               — broadcast frames
     vlan 10                       — 802.1Q VLAN ID 10
 
   Operators: and (&&), or (||), not (!)
-  Grouping: parentheses
 
   Examples:
     tcpdump -i eth0 'tcp port 80 or tcp port 443'
     tcpdump -i eth0 'src 192.168.1.0/24 and not dst port 22'
-    tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0'    # SYN packets
-    tcpdump -i eth0 'tcp[tcpflags] == tcp-rst'        # RST only
-    tcpdump -i eth0 'ip[6:2] & 0x1fff != 0'          # Fragments
-    tcpdump -i eth0 'icmp[icmptype] == icmp-echo'     # Ping requests
-    tcpdump -i eth0 'udp and port 53'                 # DNS
-    tcpdump -i eth0 -w capture.pcap                   # Save to file
-    tcpdump -r capture.pcap 'tcp port 80'             # Read from file
+    tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0'
+    tcpdump -i eth0 'tcp[tcpflags] == tcp-rst'
+    tcpdump -i eth0 'ip[6:2] & 0x1fff != 0'
+    tcpdump -i eth0 -w capture.pcap
+    tcpdump -r capture.pcap 'tcp port 80'
 INFO
 
     section "Wireshark Display Filters"
     cat << 'INFO'
-  Display filters run AFTER capture (userspace — can be any field).
-  Much more expressive than BPF; full protocol awareness.
+  Display filters run AFTER capture (userspace — full protocol awareness).
 
   Protocol filters:
-    tcp              http             dns
-    udp              https            dhcp
-    icmp             tls              arp
+    tcp  udp  icmp  http  https  dns  dhcp  tls  arp
 
   Field filters:
     ip.src == 192.168.1.1
@@ -427,26 +357,18 @@ INFO
     tcp.port == 443
     tcp.flags.syn == 1
     tcp.flags.reset == 1 and tcp.flags.ack == 1
-    tcp.analysis.retransmission         — TCP retransmissions
-    tcp.analysis.out_of_order           — out-of-order segments
-    tcp.stream eq 5                     — follow TCP stream 5
+    tcp.analysis.retransmission
+    tcp.analysis.out_of_order
     http.request.method == "POST"
     http.response.code == 200
-    http.host contains "example"
-    tls.handshake.type == 1             — Client Hello
-    tls.handshake.extensions_server_name — SNI field
+    tls.handshake.type == 1
     dns.qry.name == "malware.example"
-    dns.flags.response == 0             — DNS queries only
-    arp.opcode == 2                     — ARP replies
-    frame.time_delta > 1                — slow packets
-    frame.len > 1400                    — large frames
-    ip.ttl < 5                          — low TTL (near traceroute hop)
-
-  Useful combinations:
-    (ip.src == 10.0.0.1) && (tcp.flags.syn == 1)
-    tcp.analysis.flags && !tcp.analysis.window_update
-    !(arp or icmp or dns)               — exclude noise
-    frame contains "password"           — string search in payload
+    dns.flags.response == 0
+    arp.opcode == 2
+    frame.time_delta > 1
+    ip.ttl < 5
+    !(arp or icmp or dns)
+    frame contains "password"
 INFO
 
     section "tcpdump One-Liners"
@@ -454,7 +376,7 @@ INFO
   # Show HTTP GET/POST in ASCII
   tcpdump -i eth0 -A -s 0 'tcp port 80 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)'
 
-  # Detect SYN scan (Nmap -sS)
+  # Detect SYN scan
   tcpdump -i eth0 'tcp[tcpflags] & (tcp-syn) != 0 and tcp[tcpflags] & (tcp-ack) == 0'
 
   # Capture DNS queries only
@@ -462,13 +384,6 @@ INFO
 
   # Monitor for ARP replies (ARP spoofing detection)
   tcpdump -i eth0 -n 'arp[6:2] == 2'
-
-  # Capture ICMP type 3 (unreachables) — reveals firewall drops
-  tcpdump -i eth0 -n 'icmp[icmptype] == 3'
-
-  # Extract HTTP User-Agents
-  tcpdump -A -s 10240 'tcp port 80 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)' \
-    | grep -i "user-agent"
 
   # Write rotating captures (100MB per file, keep 5)
   tcpdump -i eth0 -G 60 -W 5 -w 'capture-%Y%m%d-%H%M%S.pcap'
@@ -487,7 +402,7 @@ CMDS
     fi
 }
 
-#  TRAFFIC BASELINING
+# TRAFFIC BASELINING
 check_traffic_baselining() {
     header "Traffic Baselining & Anomaly Detection"
 
@@ -499,18 +414,16 @@ check_traffic_baselining() {
     - Expected connection counts and states
     - DNS query rates and top domains
     - Top talkers (IP pairs with most traffic)
-    - Standard port usage patterns
 
   Deviations from baseline indicate potential issues:
     Spike in SYN packets         → SYN flood / port scan
     Spike in DNS queries         → DNS amplification / tunnelling
     High ICMP volume             → ping flood / data exfil via ICMP
     Unusual outbound ports       → C2 beaconing, data exfiltration
-    New top-talker IP            → compromised host, lateral movement
     High UDP on non-standard port→ P2P, tunnelling, crypto mining
 INFO
 
-    section "Current Traffic Snapshot (30-second baseline)"
+    section "Current Traffic Snapshot (3-second baseline)"
     echo -e "  ${MUTED}Sampling interface statistics...${NC}"
     echo
 
@@ -519,8 +432,8 @@ INFO
 
     declare -A rx1 tx1 rxp1 txp1
     for iface in $ifaces; do
-        rx1["$iface"]=$(cat "/sys/class/net/${iface}/statistics/rx_bytes" 2>/dev/null || echo 0)
-        tx1["$iface"]=$(cat "/sys/class/net/${iface}/statistics/tx_bytes" 2>/dev/null || echo 0)
+        rx1["$iface"]=$(cat "/sys/class/net/${iface}/statistics/rx_bytes"   2>/dev/null || echo 0)
+        tx1["$iface"]=$(cat "/sys/class/net/${iface}/statistics/tx_bytes"   2>/dev/null || echo 0)
         rxp1["$iface"]=$(cat "/sys/class/net/${iface}/statistics/rx_packets" 2>/dev/null || echo 0)
         txp1["$iface"]=$(cat "/sys/class/net/${iface}/statistics/tx_packets" 2>/dev/null || echo 0)
     done
@@ -535,13 +448,13 @@ INFO
 
     for iface in $ifaces; do
         local rx2 tx2 rxp2 txp2
-        rx2=$(cat "/sys/class/net/${iface}/statistics/rx_bytes" 2>/dev/null || echo 0)
-        tx2=$(cat "/sys/class/net/${iface}/statistics/tx_bytes" 2>/dev/null || echo 0)
-        rxp2=$(cat "/sys/class/net/${iface}/statistics/rx_packets" 2>/dev/null || echo 0)
-        txp2=$(cat "/sys/class/net/${iface}/statistics/tx_packets" 2>/dev/null || echo 0)
+        rx2=$(cat  "/sys/class/net/${iface}/statistics/rx_bytes"   2>/dev/null || echo 0)
+        tx2=$(cat  "/sys/class/net/${iface}/statistics/tx_bytes"   2>/dev/null || echo 0)
+        rxp2=$(cat "/sys/class/net/${iface}/statistics/rx_packets"  2>/dev/null || echo 0)
+        txp2=$(cat "/sys/class/net/${iface}/statistics/tx_packets"  2>/dev/null || echo 0)
 
-        local rxdiff=$(( (rx2 - rx1["$iface"]) / 3 ))
-        local txdiff=$(( (tx2 - tx1["$iface"]) / 3 ))
+        local rxdiff=$(( (rx2  - rx1["$iface"])  / 3 ))
+        local txdiff=$(( (tx2  - tx1["$iface"])  / 3 ))
         local rxpdiff=$(( (rxp2 - rxp1["$iface"]) / 3 ))
         local txpdiff=$(( (txp2 - txp1["$iface"]) / 3 ))
 
@@ -594,7 +507,7 @@ INFO
         done
 }
 
-#  PCAP ANALYSIS
+# PCAP ANALYSIS
 check_pcap_analysis() {
     header "PCAP File Analysis"
 
@@ -610,10 +523,6 @@ check_pcap_analysis() {
 
   Per-packet header (16 bytes):
     ts_sec (4) | ts_usec (4) | incl_len (4) | orig_len (4)
-
-  PCAPNG — newer format (default in Wireshark):
-    Multiple interfaces per file, comments, timestamps per packet.
-    Block types: Section Header, Interface Description, Enhanced Packet, etc.
 
   Tools:
     tcpdump -r file.pcap            — display
@@ -639,17 +548,15 @@ INFO
   tshark -r capture.pcap -Y "dns.flags.response == 0" \
     -T fields -e ip.src -e dns.qry.name
 
-  # Find cleartext credentials (FTP, HTTP Basic)
+  # Find cleartext credentials (FTP)
   tshark -r capture.pcap -Y "ftp.request.command == PASS" \
     -T fields -e ftp.request.arg
-  tshark -r capture.pcap -Y "http.authorization" \
-    -T fields -e http.authorization
 
   # TLS certificate subjects
   tshark -r capture.pcap -Y "tls.handshake.type == 11" \
     -T fields -e x509sat.uTF8String
 
-  # Follow TCP stream (like Wireshark Follow TCP Stream)
+  # Follow TCP stream
   tshark -r capture.pcap -q -z follow,tcp,ascii,0
 CMDS
 
@@ -659,7 +566,7 @@ CMDS
     local found_pcap=0
     for dir in "${pcap_dirs[@]}"; do
         local files
-        files=$(find "$dir" -maxdepth 2 -name "*.pcap" -o -name "*.pcapng" 2>/dev/null | head -5)
+        files=$(find "$dir" -maxdepth 2 \( -name "*.pcap" -o -name "*.pcapng" \) 2>/dev/null | head -5)
         if [[ -n "$files" ]]; then
             echo -e "\n  ${GOLD}${dir}:${NC}"
             echo "$files" | while read -r f; do

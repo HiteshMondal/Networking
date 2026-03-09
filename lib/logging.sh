@@ -1,35 +1,14 @@
 #!/bin/bash
-# =============================================================================
-#  /lib/logging.sh  —  Structured JSON logging library
-#  Networking & Cybersecurity Automation Toolkit
-#
-#  Produces machine-readable JSONL logs consumable by the dashboard and
-#  any SIEM tool (Splunk, ELK, Grafana Loki).
-#
-#  Public API:
-#    log_init     <module_id>
-#    log_end      [exit_code]
-#    log_debug    <message> [key=value ...]
-#    log_info     <message> [key=value ...]
-#    log_success  <message> [key=value ...]
-#    log_warning  <message> [key=value ...]
-#    log_error    <message> [key=value ...]
-#    log_critical <message> [key=value ...]
-#    log_section  <title>
-#    log_finding  <severity> <title> <detail>
-#    log_metric   <name> <value> [unit]
-#    log_audit    <action> <target> [key=value ...]
-# =============================================================================
 
-# ── Double-source guard ───────────────────────────────────────────────────────
+#  Double-source guard 
 [[ -n "$_LOGGING_LOADED" ]] && return 0
 _LOGGING_LOADED=1
 
-# ── Hard dependency ───────────────────────────────────────────────────────────
+#  Hard dependency 
 : "${PROJECT_ROOT:?[logging.sh] PROJECT_ROOT must be set before sourcing}"
 : "${LOG_DIR:="${PROJECT_ROOT}/logs"}"
 
-# ── Level ordering ────────────────────────────────────────────────────────────
+#  Level ordering 
 # Numeric weight per level — records below LOG_LEVEL are silently dropped.
 declare -A _LOG_LEVEL_WEIGHT=(
     [DEBUG]=0 [INFO]=1 [SUCCESS]=2 [WARNING]=3 [ERROR]=4 [CRITICAL]=5
@@ -37,16 +16,16 @@ declare -A _LOG_LEVEL_WEIGHT=(
 # Resolve once at source time from settings.conf's LOG_LEVEL export.
 _LOG_MIN_WEIGHT="${_LOG_LEVEL_WEIGHT[${LOG_LEVEL:-INFO}]:-1}"
 
-# ── Session ID (unique per toolkit invocation) ────────────────────────────────
+#  Session ID (unique per toolkit invocation) 
 if [[ -z "${TOOLKIT_SESSION_ID:-}" ]]; then
     export TOOLKIT_SESSION_ID="sess_$(date '+%Y%m%d_%H%M%S')_$$"
 fi
 
-# ── Cached values (avoid forking on every log line) ──────────────────────────
+#  Cached values (avoid forking on every log line) 
 _LOG_HOST="$(hostname 2>/dev/null || echo unknown)"
 _LOG_USER="$(whoami  2>/dev/null || echo unknown)"
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+#  Internal helpers 
 
 # _json_escape <string>
 # Escapes a raw string for safe embedding inside a JSON double-quoted value.
@@ -77,11 +56,11 @@ _log_json() {
     local message="$2"
     shift 2
 
-    # ── Level filter ──────────────────────────────────────────────────────────
+    #  Level filter 
     local weight="${_LOG_LEVEL_WEIGHT[$level]:-1}"
     [[ "$weight" -lt "$_LOG_MIN_WEIGHT" ]] && return 0
 
-    # ── Build data object from key=value pairs ────────────────────────────────
+    #  Build data object from key=value pairs 
     local data_pairs="" sep=""
     for kv in "$@"; do
         local key="${kv%%=*}"
@@ -90,7 +69,7 @@ _log_json() {
         sep=","
     done
 
-    # ── Assemble JSON record using printf -v (no subshell) ────────────────────
+    #  Assemble JSON record using printf -v (no subshell) 
     local record
     printf -v record \
         '{"timestamp":"%s","session":"%s","level":"%s","module":"%s","host":"%s","user":"%s","message":"%s","data":{%s}}' \
@@ -103,7 +82,7 @@ _log_json() {
         "$(_json_escape "${message}")" \
         "${data_pairs}"
 
-    # ── Write to disk ─────────────────────────────────────────────────────────
+    #  Write to disk 
     mkdir -p "$LOG_DIR" 2>/dev/null
 
     if [[ -n "${STRUCTURED_LOG_FILE:-}" ]]; then
@@ -116,7 +95,7 @@ _log_json() {
     fi
 }
 
-# ── Public lifecycle API ──────────────────────────────────────────────────────
+#  Public lifecycle API 
 
 # log_init <module_id>
 # Call once at the top of each script.
@@ -173,7 +152,7 @@ log_end() {
         "status=${status}"
 }
 
-# ── Level wrappers ────────────────────────────────────────────────────────────
+#  Level wrappers 
 
 log_debug()    { _log_json "DEBUG"    "$1" "${@:2}"; }
 log_info()     { _log_json "INFO"     "$1" "${@:2}"; }
@@ -182,7 +161,7 @@ log_warning()  { _log_json "WARNING"  "$1" "${@:2}"; }
 log_error()    { _log_json "ERROR"    "$1" "${@:2}"; }
 log_critical() { _log_json "CRITICAL" "$1" "${@:2}"; }
 
-# ── Semantic helpers ──────────────────────────────────────────────────────────
+#  Semantic helpers 
 
 # log_section <title>
 # Emits a visual section separator — useful for grouping phases of a long

@@ -1,16 +1,17 @@
-#!/bin/bash
-# Lateral Movement Detection Script
-# Purpose : Detect indicators of lateral movement, credential-based attacks,
-#           unusual authentication patterns, pass-the-hash/ticket artefacts,
-#           network share enumeration, and pivot staging on a Linux host.
-# Output  : lateral_movement/ directory + archive
+#!/usr/bin/env bash
+
+# Resolve project root and load framework
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+source "$PROJECT_ROOT/lib/init.sh"
 
 set -eo pipefail
 
-OUTPUT_DIR="lateral_movement"
+OUTPUT_DIR="$PROJECT_ROOT/output/lateral_movement"
 mkdir -p "$OUTPUT_DIR"
 
-# ── Error capture infrastructure ─────────────────────────────────────────────
+#  Error capture infrastructure 
 ERR_DIR="$OUTPUT_DIR/errors"
 mkdir -p "$ERR_DIR"
 ERRORS_FILE="$OUTPUT_DIR/errors_summary.txt"
@@ -38,7 +39,7 @@ whoami    >> "$OUTPUT_DIR/run_timestamp.txt"
 echo "[*] Analysing authentication logs for anomalies..."
 
 AUTH_LOG=""
-for f in /var/log/auth.log /var/log/secure; do
+for f in /var/log/auth.log /var/log/auth.log.1 /var/log/secure; do
     [ -r "$f" ] && AUTH_LOG="$f" && break
 done
 
@@ -243,7 +244,7 @@ find /home /root /var/www /opt /etc -type f 2>"$ERR_DIR/s3_credfiles.err" \
 _section_err "Section 3 credential files" "$ERR_DIR/s3_credfiles.err"
 
 echo "[*] Checking shell history for credentials..."
-find /home /root -name ".*history" -type f 2>"$ERR_DIR/s3_histcreds.err" \
+find /home /root -name ".*history" -type f -size -5M -type f 2>"$ERR_DIR/s3_histcreds.err" \
 | while read -r hist; do
     echo "=== $hist ===" >> "$OUTPUT_DIR/history_credential_exposure.txt"
     grep -iE '(password|passwd|secret|token|key|curl.*-u|wget.*--user|mysql.*-p|sshpass)' \
@@ -525,7 +526,7 @@ echo "[*] Generating lateral movement summary report..."
 
 cat "$OUTPUT_DIR/lateral_movement_summary.txt"
 
-tar -czf lateral_movement_archive.tar.gz "$OUTPUT_DIR" 2>/dev/null || true
+tar -czf "$OUTPUT_DIR/lateral_movement_archive.tar.gz" "$OUTPUT_DIR" 2>/dev/null || true
 echo
 echo "[+] Detection complete. Results in: $OUTPUT_DIR/"
 echo "[+] Archive: lateral_movement_archive.tar.gz"

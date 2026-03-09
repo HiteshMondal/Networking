@@ -1,17 +1,13 @@
 #!/bin/bash
 
-# /tools/core_protocols.sh
+# /network_lab/networking/core_protocols.sh
 # Topic: Core Protocols — Interactive Deep-Dive
 # Covers: TCP/UDP, HTTP/HTTPS, FTP/SFTP, SMTP/POP3/IMAP, DNS, ICMP
-# New: interactive menu, port-scanner helper, DNS zone-walk, custom target input
 
-# Bootstrap
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$_SELF_DIR")"
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-OUTPUT_DIR="$PROJECT_ROOT/output"
-mkdir -p "$OUTPUT_DIR"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
 check_tcp_udp() {
     header "TCP vs UDP — Transport Layer Protocols"
@@ -174,6 +170,7 @@ http_security_check() {
 
     read -rp "Enter domain: " domain
 
+    local headers
     headers=$(curl -sI "https://$domain")
 
     for h in \
@@ -186,7 +183,7 @@ http_security_check() {
         if echo "$headers" | grep -qi "$h"; then
             echo -e "${SUCCESS}$h present${NC}"
         else
-            echo -e "${WARN}$h missing${NC}"
+            echo -e "${WARNING}$h missing${NC}"
         fi
     done
 }
@@ -304,6 +301,7 @@ INFO
         timeout 5 bash -c "echo QUIT | nc -w3 '$smtp_host' 25 2>/dev/null" | head -5 \
             || echo -e "  ${MUTED}Could not connect${NC}"
     fi
+
     header "SMTP Open Relay Test"
     read -rp "SMTP server: " server
     {
@@ -414,10 +412,10 @@ INFO
 
     read -rp "Enter domain: " domain
 
-    wordlist=("www" "mail" "api" "dev" "test" "admin")
+    local wordlist=("www" "mail" "api" "dev" "test" "admin")
 
     for sub in "${wordlist[@]}"; do
-        full="$sub.$domain"
+        local full="$sub.$domain"
         if dig +short "$full" | grep -qE '^[0-9]'; then
             echo -e "${SUCCESS}$full exists${NC}"
         else
@@ -487,11 +485,12 @@ INFO
               <(grep "^Icmp:" /proc/net/snmp | tail -1 | tr ' ' '\n') \
               | tail -n +2 | awk '{printf "  %-28s %s\n", $1, $2}'
     fi
+
     header "ICMP Anomaly Detection"
     echo -e "${INFO}Monitoring ICMP traffic (5 seconds)...${NC}"
     timeout 5 tcpdump -nn icmp 2>/dev/null | awk '{print $0}' | head -10
     echo
-    echo -e "${WARN}Look for:${NC}"
+    echo -e "${WARNING}Look for:${NC}"
     echo "  - Large payload sizes"
     echo "  - Repeated echo requests"
     echo "  - Unusual frequency"

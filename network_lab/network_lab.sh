@@ -14,16 +14,10 @@ _NETWORK_LAB_LOADED=1
 NETWORK_LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${PROJECT_ROOT:="$(dirname "$NETWORK_LAB_DIR")"}"
 
-LOG_DIR="${PROJECT_ROOT}/logs"
-OUTPUT_DIR="${PROJECT_ROOT}/output"
+NETWORK_LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$NETWORK_LAB_DIR")"
 
-export LOG_DIR
-export OUTPUT_DIR
-
-
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-
+source "$PROJECT_ROOT/lib/init.sh"
 
 # INIT DIRECTORIES
 
@@ -78,7 +72,7 @@ _network_lab_launch() {
     {
         echo "=== ${label} started at $(date) ==="
 
-        bash "$full_path"
+        "$full_path"
         local rc=$?
 
         echo "=== ${label} completed at $(date) with exit code ${rc} ==="
@@ -152,42 +146,33 @@ network_lab() {
     _network_lab_init
 
     while true; do
-
         _network_lab_menu
-
         read -rp "$(echo -e "  ${PROMPT}[?] Choose an option: ${NC}")" network_lab_choice
         echo
-
         case "$network_lab_choice" in
-
-            1)  _network_lab_launch "Network Tools"         "network_lab/network_tools.sh" ;;
-            2)  _network_lab_launch "Core Protocols"        "network_lab/core_protocols.sh" ;;
-            3)  _network_lab_launch "IP Addressing"         "network_lab/ip_addressing.sh" ;;
-            4)  _network_lab_launch "Packet Analysis"       "network_lab/packet_analysis.sh" ;;
-            5)  _network_lab_launch "Network Master"        "network_lab/network_master.sh" ;;
-            6)  _network_lab_launch "Networking Basics"     "network_lab/networking_basics.sh" ;;
-            7)  _network_lab_launch "Switching & Routing"   "network_lab/switching_routing.sh" ;;
-            8)  _network_lab_launch "Security Fundamentals" "network_lab/security_fundamentals.sh" ;;
-            9)  _network_lab_launch "Wireless Security"     "network_lab/wireless_security.sh" ;;
-            10) _network_lab_launch "Firewall & IDS/IPS"    "network_lab/firewall_ids.sh" ;;
-            11) _network_lab_launch "Network Hardening"     "network_lab/network_hardening.sh" ;;
-            12) _network_lab_launch "Threat Intelligence"   "network_lab/threat_intelligence.sh" ;;
-
+            1)  _network_lab_launch "Network Tools"         "network_lab/networking/network_tools.sh" ;;
+            2)  _network_lab_launch "Core Protocols"        "network_lab/networking/core_protocols.sh" ;;
+            3)  _network_lab_launch "IP Addressing"         "network_lab/diagnostics/ip_addressing.sh" ;;
+            4)  _network_lab_launch "Packet Analysis"       "network_lab/diagnostics/packet_analysis.sh" ;;
+            5)  _network_lab_launch "Network Master"        "network_lab/networking/network_master.sh" ;;
+            6)  _network_lab_launch "Networking Basics"     "network_lab/networking/networking_basics.sh" ;;
+            7)  _network_lab_launch "Switching & Routing"   "network_lab/networking/switching_routing.sh" ;;
+            8)  _network_lab_launch "Security Fundamentals" "network_lab/security/security_fundamentals.sh" ;;
+            9)  _network_lab_launch "Wireless Security"     "network_lab/security/wireless_security.sh" ;;
+            10) _network_lab_launch "Firewall & IDS/IPS"    "network_lab/security/firewall_ids.sh" ;;
+            11) _network_lab_launch "Network Hardening"     "network_lab/networking/network_hardening.sh" ;;
+            12) _network_lab_launch "Threat Intelligence"   "network_lab/security/threat_intelligence.sh" ;;
             0)
                 log_info "Returning to main menu..."
                 return 0
                 ;;
-
             *)
                 log_error "Invalid option '${network_lab_choice}'. Please try again."
                 sleep 1
                 ;;
         esac
-
         echo
         echo -e "  ${DARK_GRAY}$(printf '%*s' 50 '' | tr ' ' '-')${NC}"
-
         read -rp "$(echo -e "  ${MUTED}Press Enter to return to the network_lab menu...${NC}  ")"
-
     done
 }

@@ -1,23 +1,15 @@
 #!/bin/bash
-# /tools/network_master.sh
+
+# /network_lab/networking/network_master.sh
 # Network Concepts Checker — Master Launcher
 
-# Bootstrap
-# IMPORTANT: SCRIPT_DIR must be set BEFORE PROJECT_ROOT
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-: "${PROJECT_ROOT:="$(dirname "$SCRIPT_DIR")"}"
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
+_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
-# Directory paths (inherit from env if launched via tools.sh)
-: "${LOG_DIR:="${PROJECT_ROOT}/logs"}"
-: "${OUTPUT_DIR:="${PROJECT_ROOT}/output"}"
-mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
-
-# Export so child bash processes (run_topic, run_all) inherit them.
+# Export so child bash processes (run_full_analysis) inherit them.
 export LOG_DIR OUTPUT_DIR PROJECT_ROOT
-
-# Source dependencies
-[[ -z "$_COLORS_LOADED"    ]] && source "$PROJECT_ROOT/lib/colors.sh"
-[[ -z "$_FUNCTIONS_LOADED" ]] && source "$PROJECT_ROOT/lib/functions.sh"
 
 #  REQUIREMENTS CHECK
 check_requirements() {
@@ -39,9 +31,7 @@ run_full_analysis() {
     local timestamp
     timestamp=$(date '+%Y%m%d_%H%M%S')
 
-    # Report artifact → output/  (user-facing deliverable)
     local report_file="${OUTPUT_DIR}/full_analysis_${timestamp}.txt"
-    # Runtime log      → logs/   (execution record)
     local log_file="${LOG_DIR}/network_master_${timestamp}.log"
 
     log_info "Full analysis — report: $report_file"
@@ -57,27 +47,15 @@ run_full_analysis() {
         echo
     } | tee -a "$report_file" | tee -a "$log_file"
 
-    # Create a BASH_ENV shim that overrides interactive helpers so child
-    # scripts don't block waiting for user input when run non-interactively.
-    # This does NOT modify any existing function — it only takes effect in
-    # the child bash processes spawned by the loop below.
     local shim_file="${OUTPUT_DIR}/.noninteractive_shim_$$.sh"
     cat > "$shim_file" << 'SHIM'
 # Injected by network_master.sh — suppresses blocking calls in child scripts.
 pause()          { echo; }
 countdown()      { echo; }
 confirm()        { return 1; }
-# Override read-based prompts: strip the prompt and return the default value
-# embedded in each function's own default variable (already coded in scripts).
-# We achieve this by making read a no-op — the caller's default applies.
 read()           { return 0; }
 SHIM
 
-    # Register cleanup BEFORE exporting BASH_ENV so the trap is in place for
-    # every possible exit path: normal completion, Ctrl+C (INT), kill (TERM),
-    # or hangup (HUP). Without this, an interrupted run leaves BASH_ENV
-    # exported in the parent tools.sh session, silently suppressing pause/read
-    # in every subsequent _launch call for the rest of that session.
     trap 'rm -f "$shim_file"; unset BASH_ENV' EXIT INT TERM HUP
 
     export BASH_ENV="$shim_file"
@@ -90,15 +68,26 @@ SHIM
         "security_fundamentals.sh:Security Fundamentals"
     )
 
+    # Map each script to its actual path — some live in diagnostics/, others in networking/ or security/
+    declare -A script_paths=(
+        ["networking_basics.sh"]="$_SELF_DIR/networking_basics.sh"
+        ["ip_addressing.sh"]="$(dirname "$_SELF_DIR")/diagnostics/ip_addressing.sh"
+        ["core_protocols.sh"]="$_SELF_DIR/core_protocols.sh"
+        ["switching_routing.sh"]="$_SELF_DIR/switching_routing.sh"
+        ["security_fundamentals.sh"]="$(dirname "$_SELF_DIR")/security/security_fundamentals.sh"
+    )
+
     local passed=0 failed=0
 
     for entry in "${topics[@]}"; do
         local script="${entry%%:*}" label="${entry##*:}"
+        local full_path="${script_paths[$script]}"
+
         echo
         echo -e "${GOLD}${BOLD}┌── Running: ${label} ──${NC}"
 
-        if [[ ! -f "$SCRIPT_DIR/$script" ]]; then
-            status_line fail "$label — script missing"
+        if [[ ! -f "$full_path" ]]; then
+            status_line fail "$label — script missing at ${full_path}"
             failed=$(( failed + 1 ))
             continue
         fi
@@ -106,19 +95,17 @@ SHIM
         {
             echo
             echo "── ${label} ──"
-            # Child script inherits LOG_DIR, OUTPUT_DIR, PROJECT_ROOT, BASH_ENV via export
-            bash "$SCRIPT_DIR/$script" 2>&1 || true
+            bash "$full_path" 2>&1 || true
         } | tee -a "$report_file" | tee -a "$log_file"
 
         status_line ok "$label — complete"
         passed=$(( passed + 1 ))
     done
 
-    # Explicit cleanup on clean exit — the trap above covers all other paths
-    # (INT/TERM/HUP/crash), so this is a belt-and-suspenders safety call.
     rm -f "$shim_file"
     unset BASH_ENV
     trap - EXIT INT TERM HUP
+
     echo
     echo -e "${BOLD}Analysis Complete:${NC}"
     kv "Passed"  "$passed"

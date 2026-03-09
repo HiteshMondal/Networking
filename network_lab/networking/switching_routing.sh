@@ -1,17 +1,13 @@
 #!/bin/bash
 
-# /tools/switching_routing.sh
+# /network_lab/networking/switching_routing.sh
 # Topic: Switching & Routing — Interactive Lab
 # Covers: Switch vs Router, MAC/CAM, VLANs, Routing Basics, Static vs Dynamic, RIP/OSPF/BGP
-# New: interactive routing calculator, VLAN manager, MTR-style path analysis
 
-# Bootstrap
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$_SELF_DIR")"
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-OUTPUT_DIR="$PROJECT_ROOT/output"
-mkdir -p "$OUTPUT_DIR"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
 # SWITCH vs ROUTER
 check_switch_vs_router() {
@@ -111,7 +107,6 @@ INFO
         state=$(ip link show "$iface" 2>/dev/null | grep -oP 'state \K\S+')
         [[ -z "$mac" ]] && continue
 
-        # Determine unicast/multicast
         local first_byte
         first_byte=$(echo "$mac" | cut -d: -f1)
         local type="Unicast"
@@ -188,12 +183,7 @@ INFO
     echo -e "${INFO}Checking for VLAN interfaces:${NC}"
     local found_vlans=0
 
-    # ip link show` output for VLAN interfaces is - N: eth0.10@eth0: <FLAGS> ...
-    # The second field is "name@parent:" — both halves carry a trailing colon
-    # that must be stripped.  Previously only the parent colon was stripped
-    # and the iface colon was never removed, leaving e.g. "eth0.10:" in output.
     ip link show 2>/dev/null | grep "@" | while read -r _ iface_at_parent _; do
-        # Strip trailing colon from the whole "name@parent:" token first
         local token="${iface_at_parent%:}"
         local iface="${token%%@*}"
         local parent="${token##*@}"
@@ -471,12 +461,13 @@ cam_flood_simulation() {
     header "CAM Table Flooding Simulation (Conceptual)"
     echo -e "${INFO}Simulating MAC flooding...${NC}"
     for i in {1..20}; do
+        local mac
         mac=$(printf "02:00:%02x:%02x:%02x:%02x\n" $RANDOM $RANDOM $RANDOM $RANDOM)
         echo "Fake MAC injected: $mac"
         sleep 0.1
     done
     echo
-    echo -e "${WARN}Real attack uses tools like macof to overflow switch CAM table${NC}"
+    echo -e "${WARNING}Real attack uses tools like macof to overflow switch CAM table${NC}"
 }
 
 main() {

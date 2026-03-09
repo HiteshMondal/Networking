@@ -1,19 +1,13 @@
 #!/bin/bash
 
-# /tools/networking_basics.sh
+# /network_lab/networking/networking_basics.sh
 # Topic: Networking Basics
 # Covers: OSI Model (all 7 layers), TCP/IP Model, Bandwidth/Latency/Throughput, Packet switching vs Circuit switching
 
-# Bootstrap
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-: "${PROJECT_ROOT:="$(dirname "$_SELF_DIR")"}"
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-
-# Directory paths (inherit from env if launched via tools.sh)
-: "${LOG_DIR:="${PROJECT_ROOT}/logs"}"
-: "${OUTPUT_DIR:="${PROJECT_ROOT}/output"}"
-mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
 #  OSI MODEL
 check_osi_model() {
@@ -67,10 +61,10 @@ check_tcpip_model() {
 
     printf "  ${BOLD}%-22s %s${NC}\n" "Layer" "Protocols / Function"
     printf "  ${DARK_GRAY}%-22s %s${NC}\n" "──────────────────────" "──────────────────────────────────────"
-    printf "  ${CYAN}%-22s${NC} %s\n" "4 — Application"  "HTTP, FTP, SMTP, DNS, SSH  (OSI 5–7)"
-    printf "  ${CYAN}%-22s${NC} %s\n" "3 — Transport"    "TCP, UDP, port numbers     (OSI 4)"
-    printf "  ${CYAN}%-22s${NC} %s\n" "2 — Internet"     "IP, ICMP, routing          (OSI 3)"
-    printf "  ${CYAN}%-22s${NC} %s\n" "1 — Network Access" "Ethernet, WiFi, ARP      (OSI 1–2)"
+    printf "  ${CYAN}%-22s${NC} %s\n" "4 — Application"    "HTTP, FTP, SMTP, DNS, SSH  (OSI 5–7)"
+    printf "  ${CYAN}%-22s${NC} %s\n" "3 — Transport"      "TCP, UDP, port numbers     (OSI 4)"
+    printf "  ${CYAN}%-22s${NC} %s\n" "2 — Internet"       "IP, ICMP, routing          (OSI 3)"
+    printf "  ${CYAN}%-22s${NC} %s\n" "1 — Network Access" "Ethernet, WiFi, ARP        (OSI 1–2)"
 
     section "Examining the TCP/IP Stack"
 
@@ -189,10 +183,10 @@ check_switching_types() {
 }
 
 main() {
-        check_osi_model
-        check_tcpip_model
-        check_bandwidth_concepts
-        check_switching_types
+    check_osi_model
+    check_tcpip_model
+    check_bandwidth_concepts
+    check_switching_types
 }
 
 main

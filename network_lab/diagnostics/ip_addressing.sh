@@ -1,17 +1,13 @@
 #!/bin/bash
 
-# /tools/ip_addressing.sh
+# /network_lab/diagnostics/ip_addressing.sh
 # Topic: IP & Addressing — Interactive Lab
 # Covers: IPv4/IPv6, Subnetting (CIDR/VLSM), Private/Public, NAT/PAT, ARP
-# New: interactive subnet calculator, CIDR chart, ARP watch, custom IP analysis
 
-#  Bootstrap
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$_SELF_DIR")"
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-OUTPUT_DIR="$PROJECT_ROOT/output"
-mkdir -p "$OUTPUT_DIR"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
 #  HELPERS
 
@@ -42,7 +38,6 @@ subnet_details() {
     local cidr="$1"
     local ip="${cidr%/*}" prefix="${cidr#*/}"
 
-    # Build mask
     local mask_int=$(( (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF ))
     local mask_a=$(( (mask_int >> 24) & 0xFF ))
     local mask_b=$(( (mask_int >> 16) & 0xFF ))
@@ -50,11 +45,9 @@ subnet_details() {
     local mask_d=$(( mask_int & 0xFF ))
     local mask="${mask_a}.${mask_b}.${mask_c}.${mask_d}"
 
-    # IP as integer
     IFS='.' read -ra ipo <<< "$ip"
     local ip_int=$(( (ipo[0] << 24) | (ipo[1] << 16) | (ipo[2] << 8) | ipo[3] ))
 
-    # Network integer
     local net_int=$(( ip_int & mask_int ))
     local na=$(( (net_int >> 24) & 0xFF ))
     local nb=$(( (net_int >> 16) & 0xFF ))
@@ -62,7 +55,6 @@ subnet_details() {
     local nd=$(( net_int & 0xFF ))
     local network="${na}.${nb}.${nc}.${nd}"
 
-    # Broadcast
     local bc_int=$(( net_int | (0xFFFFFFFF >> prefix) ))
     local ba=$(( (bc_int >> 24) & 0xFF ))
     local bb=$(( (bc_int >> 16) & 0xFF ))
@@ -70,7 +62,6 @@ subnet_details() {
     local bd=$(( bc_int & 0xFF ))
     local broadcast="${ba}.${bb}.${bc}.${bd}"
 
-    # First/Last host
     local fh_int=$(( net_int + 1 ))
     local lh_int=$(( bc_int - 1 ))
     local fha=$(( (fh_int >> 24) & 0xFF ))
@@ -166,7 +157,7 @@ TABLE
     echo -e "${INFO}Listening IPv6 services:${NC}"
     ss -ltn | grep "::" | sed 's/^/  /'
     echo
-    echo -e "${WARN}IPv6 often bypasses IPv4 firewall rules${NC}"
+    echo -e "${WARNING}IPv6 often bypasses IPv4 firewall rules${NC}"
 }
 
 ip_fragmentation_analysis() {
@@ -183,7 +174,7 @@ ip_fragmentation_analysis() {
     done
 
     echo
-    echo -e "${WARN}If fragmentation occurs → possible MTU issues or filtering${NC}"
+    echo -e "${WARNING}If fragmentation occurs → possible MTU issues or filtering${NC}"
 }
 
 ip_geolocation() {
@@ -292,8 +283,10 @@ subnet_overlap_check() {
         return
     fi
 
-    local n1=$(subnet_details "$c1" | grep Network | awk '{print $2}')
-    local n2=$(subnet_details "$c2" | grep Network | awk '{print $2}')
+    local n1
+    n1=$(subnet_details "$c1" | grep Network | awk '{print $2}')
+    local n2
+    n2=$(subnet_details "$c2" | grep Network | awk '{print $2}')
 
     echo -e "${INFO}Basic comparison:${NC}"
     echo "  $c1 vs $c2"
@@ -367,13 +360,6 @@ check_nat() {
   PAT/NAPT     — many private IPs → ONE public IP, differentiated by port
                   (Also called "NAT overload" — used in all home routers)
 
-  PAT Translation Table Example:
-    Inside         →  Outside (translated)
-    192.168.1.10:45000  →  203.0.113.5:45000
-    192.168.1.20:45001  →  203.0.113.5:45001
-    192.168.1.30:45002  →  203.0.113.5:45002
-    (Same public IP — different ephemeral source ports)
-
   NAT Types (for P2P/gaming):
     Full Cone     — most permissive, any external can reach
     Restricted    — external can reach if we sent first
@@ -416,15 +402,6 @@ INFO
     else
         status_line neutral "Connection tracking not available (nf_conntrack module not loaded)"
     fi
-
-    header "NAT Traversal Behavior"
-    echo -e "${INFO}Testing outbound connection mapping...${NC}"
-    curl -s ifconfig.me
-    echo
-    echo -e "${INFO}Local ephemeral ports:${NC}"
-    ss -tn state established | awk '{print $4}' | cut -d: -f2 | sort -n | tail -5
-    echo
-    echo -e "${MUTED}Observe port translation behavior (PAT)${NC}"
 }
 
 # ARP
@@ -435,13 +412,6 @@ check_arp() {
   ARP resolves a Layer-3 IP address to a Layer-2 MAC address
   so Ethernet frames can be delivered on the local segment.
 
-  ARP Process:
-    1. Host needs MAC for 192.168.1.1
-    2. Sends ARP Request broadcast: FF:FF:FF:FF:FF:FF
-       "Who has 192.168.1.1? Tell 192.168.1.100"
-    3. 192.168.1.1 replies with its MAC address (unicast)
-    4. Requester caches the result (ARP table)
-
   ARP Cache Entry States:
     REACHABLE — recently verified, actively used
     STALE     — timed out but not yet purged
@@ -451,8 +421,6 @@ check_arp() {
     PERMANENT — manually added (static ARP)
 
   Gratuitous ARP — host announces its own IP/MAC mapping
-    Use: IP conflict detection, cache refresh after failover
-
   ARP Spoofing — attacker sends fake ARP replies to poison caches
     Defence: dynamic ARP inspection, static ARP entries
 INFO
@@ -463,14 +431,7 @@ INFO
     printf "  ${BOLD}%-18s %-20s %-12s %-10s${NC}\n" "IP" "MAC" "Interface" "State"
     printf "  ${DARK_GRAY}%-18s %-20s %-12s %-10s${NC}\n" "──────────────────" "────────────────────" "────────────" "──────────"
 
-    # IP dev IFACE lladdr MAC STATE
-    # Previous code used positional `read` binding that left `mac` receiving
-    # the literal word "lladdr" when entries had no MAC (FAILED state), or
-    # worked accidentally when they did. The guard `[[ "$mac" == "lladdr" ]]`
-    # was dead code because `mac` was bound to the 5th field (the actual MAC),
-    # not the 4th ("lladdr"). Rewritten to use explicit field names.
     ip neigh show 2>/dev/null | while read -r n_ip _ n_iface _ n_mac n_state; do
-        # Entries in FAILED/INCOMPLETE state may have no MAC — skip them cleanly
         [[ -z "$n_mac" || "$n_mac" == "FAILED" || "$n_mac" == "INCOMPLETE" ]] && continue
         local color
         case "$n_state" in
@@ -486,8 +447,8 @@ INFO
     section "ARP Statistics"
     kv "Total ARP entries" "$(ip neigh show 2>/dev/null | wc -l)"
     kv "REACHABLE" "$(ip neigh show 2>/dev/null | grep -c REACHABLE 2>/dev/null || echo 0)"
-    kv "STALE" "$(ip neigh show 2>/dev/null | grep -c STALE 2>/dev/null || echo 0)"
-    kv "FAILED" "$(ip neigh show 2>/dev/null | grep -c FAILED 2>/dev/null || echo 0)"
+    kv "STALE"     "$(ip neigh show 2>/dev/null | grep -c STALE     2>/dev/null || echo 0)"
+    kv "FAILED"    "$(ip neigh show 2>/dev/null | grep -c FAILED    2>/dev/null || echo 0)"
 
     section "ARP Lookup for Gateway"
     local gw
@@ -506,7 +467,6 @@ INFO
 
     section "OUI Lookup on Local MACs"
     echo -e "  ${MUTED}First 3 bytes of MAC = OUI (Organizationally Unique Identifier)${NC}"
-    echo -e "  ${MUTED}Identifies the NIC manufacturer.${NC}"
     echo
     ip link show 2>/dev/null | grep "link/ether" | awk '{print $2}' | while read -r mac; do
         local oui
@@ -531,7 +491,7 @@ INFO
         echo -e "${FAILURE}Duplicate MAC detected: $mac${NC}"
     done
     echo
-    echo -e "${WARN}Duplicate MACs may indicate ARP spoofing${NC}"
+    echo -e "${WARNING}Duplicate MACs may indicate ARP spoofing${NC}"
 }
 
 main() {

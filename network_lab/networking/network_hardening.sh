@@ -1,19 +1,14 @@
 #!/bin/bash
 
-# /tools/network_hardening.sh
+# /network_lab/networking/network_hardening.sh
 # Topic: Network Hardening & Defence in Depth
 # Covers: SSH hardening, port knocking, DMZ design, zero trust,
 #         network segmentation, VPNs, honeypots, SIEM concepts
 
-# Bootstrap
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-: "${PROJECT_ROOT:="$(dirname "$_SELF_DIR")"}"
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-
-: "${LOG_DIR:="${PROJECT_ROOT}/logs"}"
-: "${OUTPUT_DIR:="${PROJECT_ROOT}/output"}"
-mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
 #  SSH HARDENING
 check_ssh_hardening() {
@@ -91,12 +86,10 @@ INFO
     section "SSH Key Management Audit"
     echo -e "${INFO}Authorized keys files on this system:${NC}"
     find /home /root -name "authorized_keys" 2>/dev/null | while read -r keyfile; do
-        local owner keycount
+        local owner keycount perms perm_col
         owner=$(stat -c '%U' "$keyfile" 2>/dev/null || echo "unknown")
         keycount=$(grep -c "^ssh-" "$keyfile" 2>/dev/null || echo 0)
-        local perms
         perms=$(stat -c '%a' "$keyfile" 2>/dev/null)
-        local perm_col
         [[ "$perms" == "600" || "$perms" == "644" ]] && perm_col="$SUCCESS" || perm_col="$WARNING"
         printf "  ${CYAN}%-45s${NC} owner: ${LABEL}%-12s${NC} keys: ${GOLD}%-3s${NC} perms: ${perm_col}%s${NC}\n" \
             "$keyfile" "$owner" "$keycount" "$perms"
@@ -145,7 +138,6 @@ INFO
 
   # Access control
   AllowUsers deploy admin          # Whitelist only
-  # AllowGroups ssh-users
 
   # Logging
   LogLevel VERBOSE
@@ -234,14 +226,6 @@ check_segmentation() {
     │  │ VLAN 10  │ │ VLAN 20  │ │  VLAN 30             ││
     │  └──────────┘ └──────────┘ └──────────────────────┘│
     └────────────────────────────────────────────────────┘
-
-  DMZ Rules (strict):
-    Internet → DMZ:     Only on specific ports (80, 443, 25...)
-    DMZ → Internet:     Only response traffic (stateful)
-    DMZ → Internal:     Only to specific backend servers + ports
-    Internal → DMZ:     Management only (SSH from jump host)
-    Internal → Internet: Via proxy; never direct (policy-dependent)
-    DMZ ↔ DMZ:          Never (each service isolated)
 INFO
 
     section "VLAN Segmentation Zones"
@@ -260,23 +244,6 @@ VLAN 50|Guest/IoT|10.0.50.0/24|Untrusted devices (isolated)
 VLAN 60|DMZ|10.0.60.0/24|Perimeter-facing services
 VLAN 99|OOB (IPMI)|10.0.99.0/24|IPMI/iDRAC/iLO (tightly restricted)
 TABLE
-
-    section "Micro-Segmentation"
-    cat << 'INFO'
-  Micro-segmentation extends firewall policy to the workload level.
-  "Never trust, always verify" — even east-west traffic within a zone.
-
-  Implementation approaches:
-    Host-based: iptables/nftables rules on each server
-    SDN overlay: VMware NSX, Cisco ACI, Open vSwitch with OpenFlow
-    Cloud security groups: AWS SG, Azure NSG, GCP VPC Firewall
-    Service mesh: Istio/Linkerd (mTLS between microservices)
-
-  Identity-based segmentation (Zero Trust):
-    Authenticate workload identity (SPIFFE/SPIRE, certificates)
-    Policy = "workload A can talk to workload B on port X"
-    Implementation: Hashicorp Consul Connect, Cilium (eBPF)
-INFO
 
     section "Current Segmentation Status"
     echo -e "${INFO}VLANs / bridges on this system:${NC}"
@@ -308,18 +275,6 @@ check_zero_trust() {
     2. Verify explicitly — authenticate and authorize every request
     3. Least privilege access — minimal rights, just-in-time access
 
-  Traditional vs Zero Trust:
-    Traditional: Trust the network (inside = safe, outside = hostile)
-    Zero Trust:  No implicit trust based on network location
-
-  Zero Trust components:
-    Identity Provider (IdP):  MFA, SSO, device compliance (Azure AD, Okta)
-    Policy Engine:            Evaluates who/what/where/when for each request
-    Policy Enforcement Point: Proxy/gateway that enforces the decision
-    Device Trust:             MDM attestation, certificate, EDR health check
-    Micro-segmentation:       Enforce at workload level (not just perimeter)
-    Continuous monitoring:    Re-evaluate trust posture on every access
-
   Zero Trust Access flow:
     User+Device → [IdP: MFA + Device Posture Check]
                → [Policy Engine: evaluate context]
@@ -349,18 +304,6 @@ INFO
     for item in "${checklist[@]}"; do
         echo -e "  ${MUTED}○${NC}  ${VALUE}${item}${NC}"
     done
-
-    section "BeyondCorp Reference Architecture"
-    cat << 'INFO'
-  Google BeyondCorp (2011) — first major ZTNA implementation:
-    - Moved from VPN-based to access proxy model
-    - Every request authenticated + device verified (no implicit LAN trust)
-    - Device inventory database + certificate issuance for enrolled devices
-    - Access proxy evaluates: user identity, group, device cert, device state
-
-  Key lesson: Users work from any network equally (office = coffee shop = cloud)
-  Eliminated the privileged network — LAN is no more trusted than Internet.
-INFO
 }
 
 #  VPN TECHNOLOGIES
@@ -386,29 +329,6 @@ SSTP|TCP443|AES|Good|Yes|Windows,HTTP bypass
 GRE|IP/47|None|Fast|No|Tunnel protocol (no encrypt)
 TABLE
 
-    section "WireGuard — Modern VPN Deep Dive"
-    cat << 'INFO'
-  WireGuard (2016) — Linus Torvalds: "a work of art" — merged Linux 5.6 (2020).
-
-  Design principles:
-    - Minimal codebase: ~4000 lines (OpenVPN: 70,000+; IPSec: 100,000+)
-    - Cryptography: fixed, modern, no negotiation (no downgrade attacks)
-    - Stateless: no sessions, no handshakes per connection
-    - Silent drop of unauthorized packets (stealth — no response to probes)
-
-  Cryptographic primitives (not configurable — chosen by design):
-    Key exchange:   Curve25519 (ECDH)
-    Encryption:     ChaCha20
-    MAC:            Poly1305
-    Hash:           BLAKE2s
-    Header MAC:     SipHash24
-    KDF:            HKDF
-
-  Roaming: IP change is handled transparently — endpoint updates on first packet.
-  Handshake: 1-RTT (initiator → responder → initiator = 3 messages total).
-  Cookies: DTLS-style handshake throttling against DoS.
-INFO
-
     section "WireGuard Status & Configuration"
     if cmd_exists wg; then
         echo -e "${INFO}WireGuard interfaces:${NC}"
@@ -426,15 +346,6 @@ INFO
     else
         status_line neutral "OpenVPN not running"
     fi
-
-    section "IPSec Status"
-    for ipsec_cmd in ipsec strongswan; do
-        if cmd_exists "$ipsec_cmd" || systemctl is-active "$ipsec_cmd" &>/dev/null; then
-            echo -e "${INFO}IPSec (${ipsec_cmd}):${NC}"
-            sudo ipsec status 2>/dev/null | head -10 | sed 's/^/  /' \
-                || status_line neutral "${ipsec_cmd} installed but not running"
-        fi
-    done
 
     section "VPN Tunnel Interfaces"
     echo -e "${INFO}Active tunnel interfaces:${NC}"
@@ -458,68 +369,9 @@ check_honeypots() {
     High-interaction: Real systems. Full attack surface; maximum intel.
                       High risk if not properly isolated. Tool: HoneyDrive
 
-  By purpose:
-    Production honeypot: Deployed in real networks to detect active attackers
-    Research honeypot:   Captures malware, 0-days, attacker TTPs
-    Honeytoken:          Fake credential/data that triggers alert if accessed
-    Honeypot farm:       Multiple honeypots (Project Honey Pot, Shodan data)
-
-  Honeynets: full network of honeypots + real-looking infrastructure.
-
-  Legal consideration:
-    Generally legal to deploy on your own network.
-    Entrapment arguments rarely succeed (attackers choose to attack).
-    Jurisdiction matters for cross-border attackers.
-INFO
-
-    section "Cowrie — SSH Honeypot"
-    cat << 'INFO'
-  Cowrie emulates an SSH/Telnet server and logs all attacker activity:
-    - Username/password attempts (credential intelligence)
-    - Commands executed in fake shell
-    - Files uploaded/downloaded (malware samples)
-    - Full session replay
-
-  Deployment (Docker):
-    docker run -p 2222:2222 cowrie/cowrie:latest
-    # Or on port 22 (move real SSH to non-standard port first)
-
-  Log analysis:
-    tail -f /home/cowrie/var/log/cowrie/cowrie.json | jq .
-    jq '.eventid, .username, .password' cowrie.json
-INFO
-
-    section "OpenCanary — Lightweight Production Honeypot"
-    cat << 'INFO'
-  OpenCanary emulates multiple services and alerts on any interaction:
-    Services: SSH, HTTP, FTP, Telnet, MySQL, Redis, VNC, RDP, NFS, SMB
-
-  Configuration: /etc/opencanaryd/opencanary.conf
-  Alert channels: email, syslog, Slack webhook, TCP
-
-  Excellent for detecting:
-    - Lateral movement (internal host hitting honeypot)
-    - Port scans
-    - Default credential attempts
-    - Insider threat reconnaissance
-INFO
-
-    section "Honeytokens — Deception in Data"
-    cat << 'INFO'
-  Honeytokens are fake resources that generate alerts when accessed:
-
-  Types:
-    Fake credentials:    AWS keys, passwords in config files (canarytoken.org)
-    Fake documents:      PDF/Word with tracking pixel or DNS beacon
-    Fake database rows:  "admin@fakeemail.com" → triggers alert on exfiltration
-    Fake API keys:       Monitor for usage in third-party APIs
-    Fake DNS entries:    Internal hostnames that shouldn't be resolved externally
-    Canary files:        Honey files in sensitive directories (audit on open)
-
-  canarytokens.org — free hosted honeytoken service:
-    Generates unique URLs, emails, documents with callbacks
-    Email/Slack/webhook alert on access
-    Tracks IP, User-Agent, geolocation of the attacker
+  Honeytoken types:
+    Fake credentials/documents/database rows/API keys/DNS entries/canary files
+    canarytokens.org — free hosted honeytoken service
 INFO
 
     section "Honeypot Deployment Check"
@@ -536,13 +388,13 @@ INFO
     cat << 'CMDS'
   # Listen on a common attack port, log every connection
   while true; do
-      date >> /tmp/honeypot.log
-      echo "Connection from:" >> /tmp/honeypot.log
-      nc -l -p 23 -w 5 2>&1 | tee -a /tmp/honeypot.log
+      date >> "$OUTPUT_DIR/honeypot.log"
+      echo "Connection from:" >> "$OUTPUT_DIR/honeypot.log"
+      nc -l -p 23 -w 5 2>&1 | tee -a "$OUTPUT_DIR/honeypot.log"
   done &
 
   # Watch the log
-  tail -f /tmp/honeypot.log
+  tail -f "$OUTPUT_DIR/honeypot.log"
 CMDS
 }
 
@@ -557,32 +409,15 @@ check_siem() {
     - Normalisation (parse diverse log formats into common schema)
     - Correlation (connect events across sources to detect attacks)
     - Alerting (trigger on rule matches, thresholds, anomalies)
-    - Forensics (search, timeline, case management)
-    - Compliance reporting (PCI-DSS, HIPAA, SOX)
-
-  Data sources:
-    Network: Firewall, IDS/IPS, DNS, DHCP, NetFlow, proxy
-    Host:    Syslog, Windows Event Log, auditd, application logs
-    Identity: AD/LDAP, VPN, MFA
-    Cloud:   CloudTrail, Azure Monitor, GCP Cloud Logging
 
   Common SIEMs:
     Open source:  Elastic SIEM (ELK), Wazuh, OSSIM, Graylog
     Commercial:   Splunk, IBM QRadar, Microsoft Sentinel, Exabeam
-
-  SIEM detection categories:
-    Rules-based:    Known attack patterns (SIGMA rules)
-    Threshold:      N events in T seconds from source X
-    Correlation:    Combine events across multiple sources (kill chain)
-    Behavioural:    UEBA (User/Entity Behaviour Analytics) — ML baseline
-    Threat intel:   IOC matching (IP, domain, hash from feeds)
 INFO
 
     section "Log Collection — rsyslog"
     if systemctl is-active rsyslog &>/dev/null; then
         status_line ok "rsyslog is active"
-        echo -e "${INFO}rsyslog configuration:${NC}"
-        grep -v "^#\|^$" /etc/rsyslog.conf 2>/dev/null | head -20 | sed 's/^/  /'
     elif systemctl is-active syslog &>/dev/null; then
         status_line ok "syslog is active"
     else
@@ -620,56 +455,6 @@ INFO
             printf "  ${MUTED}%-40s${NC} not present   %s\n" "$path" "$desc"
         fi
     done
-
-    section "SIGMA Rules — Universal Detection Format"
-    cat << 'INFO'
-  SIGMA is an open rule format for SIEM-agnostic detections.
-  One rule → compiled to Splunk SPL, Elastic KQL, Chronicle YARA-L, etc.
-
-  Example SIGMA rule (SSH brute force):
-  ───────────────────────────────────
-  title: SSH Brute Force Attempt
-  id: 5f873a75-...
-  status: stable
-  description: Detects multiple failed SSH login attempts
-  logsource:
-    product: linux
-    service: auth
-  detection:
-    selection:
-      eventid: sshd
-      message|contains: "Failed password"
-    timeframe: 30s
-    condition: selection | count() by src_ip > 5
-  fields:
-    - src_ip
-    - username
-  level: high
-  tags:
-    - attack.credential_access
-    - attack.t1110.001            # MITRE ATT&CK
-  ───────────────────────────────────
-  Repository: github.com/SigmaHQ/sigma
-INFO
-
-    section "NetFlow / IPFIX Analysis"
-    cat << 'INFO'
-  NetFlow (Cisco) / IPFIX (IETF RFC 7011) — flow-level traffic records.
-  Instead of capturing packets, record metadata per connection:
-    src IP, dst IP, src port, dst port, protocol, bytes, packets, timestamps
-
-  Use cases:
-    - Long-term traffic trending (SIEM storage efficient)
-    - Detect beaconing (regular intervals to same IP)
-    - Detect data exfiltration (high outbound bytes)
-    - Top talkers, bandwidth accounting
-    - Compliance audit trails
-
-  Collector: nfcapd, ntopng, Elastic Beats (packetbeat), Argus
-  Analyser:  nfdump, Kibana, Grafana, Splunk NetFlow app
-
-  sFlow: sampling variant — samples 1 in N packets (scalable for 100G).
-INFO
 }
 
 #  NETWORK HARDENING FINAL CHECKLIST
@@ -695,7 +480,6 @@ check_hardening_summary() {
         fi
     }
 
-    # sysctl checks
     run_check "SYN cookies enabled"      "sysctl -n net.ipv4.tcp_syncookies"       "1"
     run_check "IP forwarding disabled"   "sysctl -n net.ipv4.ip_forward"           "0"
     run_check "RP filter enabled (all)"  "sysctl -n net.ipv4.conf.all.rp_filter"   "1"
@@ -705,7 +489,6 @@ check_hardening_summary() {
     run_check "Broadcast ping ignored"   "sysctl -n net.ipv4.icmp_echo_ignore_broadcasts"  "1"
     run_check "IPv6 redirects disabled"  "sysctl -n net.ipv6.conf.all.accept_redirects"    "0"
 
-    # SSH checks
     if [[ -r /etc/ssh/sshd_config ]]; then
         local root_login
         root_login=$(grep -iE '^PermitRootLogin\s' /etc/ssh/sshd_config 2>/dev/null \
@@ -730,7 +513,6 @@ check_hardening_summary() {
         fi
     fi
 
-    # Firewall
     if sudo iptables -L 2>/dev/null | grep -q "DROP\|REJECT"; then
         status_line ok "Firewall: iptables rules with DROP/REJECT detected"
         (( checks_pass++ ))

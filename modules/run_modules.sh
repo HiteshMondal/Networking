@@ -5,12 +5,8 @@
 # PATH SETUP
 MODULES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$MODULES_DIR")"
-LOG_DIR="$PROJECT_ROOT/logs"
-OUTPUT_DIR="$PROJECT_ROOT/output"
 
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-source "$PROJECT_ROOT/config/settings.conf"
+source "$PROJECT_ROOT/lib/init.sh"
 
 # MODULE MENU
 show_modules_menu() {
@@ -251,24 +247,20 @@ execute_module() {
 
 # MODULE ROUTER
 run_modules() {
-
     local choice="$1"
-
     case $choice in
-
-        1) execute_module "$MODULES_DIR/detect_suspicious_net_linux.sh" ;;
-        2) execute_module "$MODULES_DIR/secure_system.sh" ;;
-        3) execute_module "$MODULES_DIR/revert_security.sh" ;;
-        4) execute_module "$MODULES_DIR/system_info.sh" ;;
-        5) execute_module "$MODULES_DIR/forensic_collect.sh" ;;
-        6) execute_module "$MODULES_DIR/web_recon.sh" ;;
-        7) execute_module "$MODULES_DIR/malware_analysis.sh" ;;
-        8) execute_module "$MODULES_DIR/lateral_movement_detect.sh" ;;
-        9) execute_module "$MODULES_DIR/log_analysis.sh" ;;
-        10) execute_module "$MODULES_DIR/cloud_exposure_audit.sh" ;;
-        11) execute_module "$MODULES_DIR/data_exfil_detect.sh" ;;
+        1) execute_module "$MODULES_DIR/analysis/detect_suspicious_net_linux.sh" ;;
+        2) execute_module "$MODULES_DIR/system_security/secure_system.sh" ;;
+        3) execute_module "$MODULES_DIR/system_security/revert_security.sh" ;;
+        4) execute_module "$MODULES_DIR/forensics/system_info.sh" ;;
+        5) execute_module "$MODULES_DIR/forensics/forensic_collect.sh" ;;
+        6) execute_module "$MODULES_DIR/reconnaissance/web_recon.sh" ;;
+        7) execute_module "$MODULES_DIR/threat_detection/malware_analysis.sh" ;;
+        8) execute_module "$MODULES_DIR/threat_detection/lateral_movement_detect.sh" ;;
+        9) execute_module "$MODULES_DIR/analysis/log_analysis.sh" ;;
+        10) execute_module "$MODULES_DIR/analysis/cloud_exposure_audit.sh" ;;
+        11) execute_module "$MODULES_DIR/threat_detection/data_exfil_detect.sh" ;;
         0) return ;;
-
         *)
             log_error "Invalid choice: '${choice}'"
             return 1

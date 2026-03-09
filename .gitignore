@@ -69,6 +69,7 @@ ldapsearch.out
 *.out
 *.log
 */logs/
+*/output/
 *.tmp
 *.temp
 *.cache

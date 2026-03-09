@@ -1,16 +1,12 @@
 #!/bin/bash
 
-# /tools/network_tools.sh
+# /network_lab/networking/network_tools.sh
 # Network Tools Analyzer & Live Monitor
-# New: input sanitization, bandwidth test, DNS bench, port range scanner, whois, better output
 
-# Bootstrap
+# Bootstrap — script lives 2 levels below PROJECT_ROOT
 _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$_SELF_DIR")"
-source "$PROJECT_ROOT/lib/colors.sh"
-source "$PROJECT_ROOT/lib/functions.sh"
-OUTPUT_DIR="$PROJECT_ROOT/output"
-mkdir -p "$OUTPUT_DIR"
+PROJECT_ROOT="$(cd "$_SELF_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/lib/init.sh"
 
 # Package manager detection (cached)
 PKG_MANAGER=""
@@ -35,8 +31,6 @@ ensure_tool() {
         brew)   brew install "$pkg" ;;
         *)      log_error "Cannot auto-install $pkg — please install manually"; return 1 ;;
     esac
-    # Re-verify: a successful package-manager exit code does not
-    # guarantee the binary is on the current PATH.
     if cmd_exists "$tool"; then
         log_success "$tool installed and available"
         return 0
@@ -100,15 +94,13 @@ run_connections() {
     printf "  ${BOLD}%-8s %-24s %-20s %s${NC}\n" "Proto" "Local Address" "State" "Process"
     printf "  ${DARK_GRAY}%-8s %-24s %-20s %s${NC}\n" "───────" "───────────────────────" "───────────────────" "───────"
     ss -tulnp 2>/dev/null | tail -n +2 | while read -r proto _ _ local _ process; do
-        local state=""
         printf "  ${GREEN}%-8s${NC} ${CYAN}%-24s${NC} ${MUTED}%-20s${NC} %s\n" \
-            "$proto" "$local" "$state" "$process"
+            "$proto" "$local" "" "$process"
     done
 
     echo
     echo -e "${INFO}Established TCP connections:${NC}"
-    ss -tnp state established 2>/dev/null | tail -n +2 | head -20 | \
-        sed 's/^/  /'
+    ss -tnp state established 2>/dev/null | tail -n +2 | head -20 | sed 's/^/  /'
 
     echo
     echo -e "${INFO}Socket summary:${NC}"
@@ -162,7 +154,7 @@ run_port_scan() {
 
     local target
     target=$(prompt_host "127.0.0.1")
-    local range
+    local scan_mode
     read -rp "$(echo -e "  ${PROMPT}Scan mode — (1) common ports, (2) range, (3) nmap:${NC} ")" scan_mode
 
     echo
@@ -249,7 +241,6 @@ run_dns_bench() {
     printf "  ${BOLD}%-16s %-14s %-8s %s${NC}\n" "Resolver" "Provider" "Time(ms)" "Answer"
     printf "  ${DARK_GRAY}%-16s %-14s %-8s %s${NC}\n" "────────────────" "──────────────" "────────" "──────────"
 
-    # Detect whether nanosecond timestamps are available once, outside the loop.
     local use_ns=0
     date +%s%N 2>/dev/null | grep -qP '^\d{19}' && use_ns=1
 
@@ -258,15 +249,11 @@ run_dns_bench() {
         local t_start t_end elapsed answer
 
         if [[ "$use_ns" -eq 1 ]]; then
-            # Capture answer and timing in a single dig call per resolver.
-            # Previously the fallback branch ran dig twice — once for timing
-            # (discarding the answer) and once to capture the answer.
             t_start=$(date +%s%N)
             answer=$(dig +short +time=2 "$domain" "@$ip" 2>/dev/null | head -1)
             t_end=$(date +%s%N)
             elapsed=$(( (t_end - t_start) / 1000000 ))
         else
-            # Second-precision fallback: single dig call; accept ~1s granularity.
             t_start=$(date +%s)
             answer=$(dig +short +time=2 "$domain" "@$ip" 2>/dev/null | head -1)
             t_end=$(date +%s)
@@ -313,7 +300,6 @@ run_bandwidth_monitor() {
     local ifaces
     ifaces=$(ip link show 2>/dev/null | grep -oP '^\d+: \K[^:@]+' | grep -v lo)
 
-    # Read stats twice, 2 seconds apart
     declare -A rx1 tx1
     for iface in $ifaces; do
         rx1["$iface"]=$(cat "/sys/class/net/${iface}/statistics/rx_bytes" 2>/dev/null || echo 0)
