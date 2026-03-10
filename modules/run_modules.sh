@@ -42,6 +42,9 @@ show_modules_menu() {
     echo -e "  ${GREEN} 10.${NC}  Cloud Exposure Audit"
     echo -e "  ${GREEN} 11.${NC}  Data Exfiltration Detection"
     echo
+    echo -e "  ${AMBER}Automation${NC}"
+    echo -e "  ${GREEN} 12.${NC}  Run All Security Modules"
+    echo
     echo -e "  ${RED}  0.${NC}  Back to Main Menu"
     echo
     echo -e "${BORDER}${border}${NC}"
@@ -49,16 +52,21 @@ show_modules_menu() {
 
 # EXECUTE MODULE
 execute_module() {
-
+    mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
     local module_path="$1"
-    local module_target="$TARGET"
+    shift
+    local module_args=("$@")
     local module_name
-    module_name=$(basename "$module_path" "$module_target")
+    module_name=$(basename "$module_path")
 
     local timestamp
     timestamp=$(date +"%Y%m%d_%H%M%S")
 
-    local log_file="$LOG_DIR/${module_name}_${timestamp}.log"
+    local log_file="${LOG_DIR}/${module_name}_${timestamp}.log"
+    touch "$log_file" 2>/dev/null || {
+        log_error "Cannot create log file: $log_file"
+        return 1
+    }
     local module_pid=""
     local module_timeout
 
@@ -131,7 +139,6 @@ execute_module() {
     echo -e "${BORDER}${border}${NC}"
     echo
     kv "  Module"  "$module_path"
-    kv "  Target" "$module_target"
     kv "  Log"     "$log_file"
     kv "  Timeout" "${module_timeout}s"
     echo
@@ -170,24 +177,26 @@ execute_module() {
         log_error "Failed to create output directory: $OUTPUT_DIR"
         return 1
     }
-    chmod +x "$module_path" "$module_target" 2>/dev/null
+    chmod +x "$module_path" 2>/dev/null
     echo "=== Execution started at $(date) ===" > "$log_file"
     echo -e "  ${DARK_GRAY}$(printf '%*s' "$W" '' | tr ' ' '-')${NC}"
     echo
 
 
 # START MODULE
-
     (
-        cd "$OUTPUT_DIR" || exit 1
+        cd "$OUTPUT_DIR" || {
+            echo "Failed to enter OUTPUT_DIR" >> "$log_file"
+            exit 1
+        }
 
         if [ -n "$module_timeout" ]; then
-            timeout "$module_timeout" "$module_path" "$module_target" "$module_target"
+            timeout "$module_timeout" "$module_path" "${module_args[@]}"
         else
-            "$module_path" "$module_target" "$module_target"
+            "$module_path" "${module_args[@]}"
         fi
 
-    ) 2>&1 | tee -a "$log_file" &
+    ) > >(tee -a "$log_file") 2>&1 &
 
     module_pid=$!
 
@@ -247,6 +256,38 @@ execute_module() {
     trap - INT
 }
 
+run_all_modules() {
+    clear
+    show_banner
+    echo
+    echo -e "  ${ACCENT}[>] Running ALL security modules sequentially"
+    echo -e "  ${WARNING}[~] This may take a long time"
+    echo
+    echo -e "  ${PROMPT}Starting in 3 seconds... Press Ctrl+C to cancel.${NC}"
+    sleep 3
+
+    execute_module "$MODULES_DIR/analysis/detect_suspicious_net_linux.sh"
+    execute_module "$MODULES_DIR/system_security/secure_system.sh"
+    execute_module "$MODULES_DIR/system_security/revert_security.sh"
+    execute_module "$MODULES_DIR/forensics/system_info.sh"
+    execute_module "$MODULES_DIR/forensics/forensic_collect.sh"
+
+    # Web recon requires a target
+    DEFAULT_TARGET="example.com"
+    target="$DEFAULT_TARGET"
+
+    execute_module "$MODULES_DIR/reconnaissance/web_recon.sh" "$target"
+    execute_module "$MODULES_DIR/threat_detection/malware_analysis.sh"
+    execute_module "$MODULES_DIR/threat_detection/lateral_movement_detect.sh"
+    execute_module "$MODULES_DIR/analysis/log_analysis.sh"
+    execute_module "$MODULES_DIR/analysis/cloud_exposure_audit.sh"
+    execute_module "$MODULES_DIR/threat_detection/data_exfil_detect.sh"
+    echo
+    echo -e "  ${SUCCESS}[+] All modules completed."
+    echo
+    read -rp "$(echo -e "  ${MUTED}Press Enter to return to menu...${NC}")"
+}
+
 # MODULE ROUTER
 run_modules() {
     local choice="$1"
@@ -256,12 +297,33 @@ run_modules() {
         3) execute_module "$MODULES_DIR/system_security/revert_security.sh" ;;
         4) execute_module "$MODULES_DIR/forensics/system_info.sh" ;;
         5) execute_module "$MODULES_DIR/forensics/forensic_collect.sh" ;;
-        6) execute_module "$MODULES_DIR/reconnaissance/web_recon.sh" ;;
+        6)
+            echo
+            echo -e "  ${ACCENT}Web Reconnaissance Target Setup${NC}"
+            echo -e "  ${DARK_GRAY}---------------------------------${NC}"
+            echo
+            DEFAULT_TARGET="example.com"
+            echo -e "  ${INFO}[i] Examples:"
+            echo -e "      example.com"
+            echo -e "      https://example.com"
+            echo -e "      subdomain.example.com"
+            echo
+            echo -e "  ${INFO}[i] Press Enter to use default target: ${ACCENT}${DEFAULT_TARGET}${NC}"
+            echo
+            read -rp "$(echo -e "  ${PROMPT}[?] Target domain or URL [${DEFAULT_TARGET}]: ${NC}")" target
+            target="${target:-$DEFAULT_TARGET}"
+            echo
+            echo -e "  ${SUCCESS}[+] Target selected: ${ACCENT}$target${NC}"
+            echo
+            read -rp "$(echo -e "  ${PROMPT}Press Enter to start reconnaissance...${NC}")"
+            echo
+            execute_module "$MODULES_DIR/reconnaissance/web_recon.sh" "$target";;
         7) execute_module "$MODULES_DIR/threat_detection/malware_analysis.sh" ;;
         8) execute_module "$MODULES_DIR/threat_detection/lateral_movement_detect.sh" ;;
         9) execute_module "$MODULES_DIR/analysis/log_analysis.sh" ;;
         10) execute_module "$MODULES_DIR/analysis/cloud_exposure_audit.sh" ;;
         11) execute_module "$MODULES_DIR/threat_detection/data_exfil_detect.sh" ;;
+        12) run_all_modules ;;
         0) return ;;
         *)
             log_error "Invalid choice: '${choice}'"

@@ -67,8 +67,10 @@ echo "[*] Checking for log tampering indicators..."
 
 {
     echo "=== Log file modification times ==="
-    ls -la /var/log/auth.log /var/log/syslog /var/log/messages \
-           /var/log/secure /var/log/kern.log 2>>"$ERR_DIR/s2_tamper.err" || true
+    for _lf in /var/log/auth.log /var/log/syslog /var/log/messages \
+               /var/log/secure /var/log/kern.log; do
+        ls -la "$_lf" 2>>"$ERR_DIR/s2_tamper.err" || true
+    done
 
     echo
     echo "=== Gaps in log timestamps (possible truncation/wiping) ==="
@@ -107,7 +109,7 @@ echo "[*] Checking for log tampering indicators..."
     find /home /root -name ".*history" -type f 2>>"$ERR_DIR/s2_tamper.err" \
     | while IFS= read -r hist; do
         grep -iE '(rm.*\.log|shred.*log|> /var/log|truncate.*log|unlink.*log|echo.*>/var/log)' \
-            "$hist" 2>>"$ERR_DIR/s2_tamper.err" \
+            "$hist" 2>>"$ERR_DIR/s2_tamper.err" || true \
         | while IFS= read -r line; do
             echo "$hist: $line"
         done
@@ -201,8 +203,10 @@ fi
     || rm -f "$ERR_DIR/s3_auth.err"
 
 # Metrics from auth timeline
-ssh_fail_count=$(grep -c "\[ALERT\]" "$OUTPUT_DIR/auth_timeline.txt" 2>/dev/null || echo 0)
-user_created_count=$(grep -c "\[MONITOR\]" "$OUTPUT_DIR/auth_timeline.txt" 2>/dev/null || echo 0)
+ssh_fail_count=$(grep -c "\[ALERT\]" "$OUTPUT_DIR/auth_timeline.txt" 2>/dev/null || true)
+ssh_fail_count=$(echo "${ssh_fail_count:-0}" | tr -d '[:space:]')
+user_created_count=$(grep -c "\[MONITOR\]" "$OUTPUT_DIR/auth_timeline.txt" 2>/dev/null || true)
+user_created_count=$(echo "${user_created_count:-0}" | tr -d '[:space:]')
 log_metric "ssh_failures" "$ssh_fail_count" "count"
 log_metric "users_created" "$user_created_count" "count"
 
@@ -221,9 +225,11 @@ log_section "Privilege Escalation Events"
 echo "[*] Detecting privilege escalation events..."
 
 {
+set +o pipefail    
     echo "=== sudo command history ==="
     for logfile in /var/log/auth.log /var/log/secure; do
-        [ -r "$logfile" ] && grep "sudo" "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -100
+        [ -r "$logfile" ] || continue
+        grep "sudo" "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -100 || true
     done
     journalctl _COMM=sudo --no-pager -n 100 2>>"$ERR_DIR/s4_privesc.err" \
         || echo "(journald sudo query unavailable)"
@@ -231,26 +237,28 @@ echo "[*] Detecting privilege escalation events..."
     echo
     echo "=== su (switch user) events ==="
     for logfile in /var/log/auth.log /var/log/secure; do
-        [ -r "$logfile" ] && grep '\bsu\b' "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -50
+        [ -r "$logfile" ] || continue
+        grep '\bsu\b' "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -50 || true
     done
 
     echo
     echo "=== setuid/setgid execution events (auditd) ==="
-    ausearch -m EXECVE -ts today 2>>"$ERR_DIR/s4_privesc.err" | head -50 \
-        || echo "(auditd not available)"
+    { ausearch -m EXECVE -ts today 2>>"$ERR_DIR/s4_privesc.err" || true; } | head -50
+    [ -s "$ERR_DIR/s4_privesc.err" ] && echo "(auditd not available or produced errors)"
 
     echo
     echo "=== Polkit / pkexec events ==="
     for logfile in /var/log/auth.log /var/log/secure; do
-        [ -r "$logfile" ] \
-            && grep -iE "polkit|pkexec" "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -20
+        [ -r "$logfile" ] || continue
+        grep -iE "polkit|pkexec" "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -20 || true
     done
     journalctl _COMM=pkexec --no-pager -n 20 2>>"$ERR_DIR/s4_privesc.err" || true
 
     echo
     echo "=== doas events ==="
     for logfile in /var/log/auth.log /var/log/messages; do
-        [ -r "$logfile" ] && grep '\bdoas\b' "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -20
+        [ -r "$logfile" ] || continue
+        grep '\bdoas\b' "$logfile" 2>>"$ERR_DIR/s4_privesc.err" | tail -20 || true
     done
 
     echo
@@ -265,6 +273,7 @@ echo "[*] Detecting privilege escalation events..."
         fi
     done | head -20
 
+set -o pipefail
 } > "$OUTPUT_DIR/privilege_escalation_events.txt"
 
 [ -s "$ERR_DIR/s4_privesc.err" ] \
@@ -379,6 +388,7 @@ log_section "Kernel Log Analysis"
 echo "[*] Analysing kernel logs for security events..."
 
 {
+set +o pipefail    
     echo "=== Kernel OOM kills ==="
     dmesg 2>>"$ERR_DIR/s6_kernel.err" | grep -iE "oom[_-]|killed process" | tail -20
     journalctl -k --no-pager 2>>"$ERR_DIR/s6_kernel.err" \
@@ -406,6 +416,7 @@ echo "[*] Analysing kernel logs for security events..."
     echo "=== Hardware errors ==="
     dmesg 2>>"$ERR_DIR/s6_kernel.err" | grep -iE "edac|mce|machine check|hardware error" | tail -10
 
+set -o pipefail
 } > "$OUTPUT_DIR/kernel_log_analysis.txt"
 
 [ -s "$ERR_DIR/s6_kernel.err" ] \
@@ -419,6 +430,7 @@ log_section "Shell History Forensics"
 echo "[*] Forensicating shell histories..."
 
 {
+set +o pipefail
     echo "=== High-risk commands executed (all users) ==="
     find /home /root -name ".*history" -type f 2>>"$ERR_DIR/s7_history.err" \
     | while IFS= read -r hist; do
@@ -446,6 +458,7 @@ echo "[*] Forensicating shell histories..."
         fi
     done
 
+set -o pipefail
 } > "$OUTPUT_DIR/shell_history_forensics.txt"
 
 [ -s "$ERR_DIR/s7_history.err" ] \
@@ -468,10 +481,10 @@ fi
 
 # NOTE: log_info / log_warning etc. are now available here because log_init
 # was called at the top of this script, before any section executes.
-ausearch -m EXECVE --start today 2>"$ERR_DIR/s7_auditd.err" \
-    | head -300 > "$OUTPUT_DIR/auditd_execve.txt" \
-    || { _note_err "auditd execve" $?
-         echo "(auditd not available)" > "$OUTPUT_DIR/auditd_execve.txt"; }
+{ ausearch -m EXECVE --start today 2>"$ERR_DIR/s7_auditd.err" || true; } \
+    | head -300 > "$OUTPUT_DIR/auditd_execve.txt"
+[ ! -s "$OUTPUT_DIR/auditd_execve.txt" ] \
+    && echo "(auditd not available)" > "$OUTPUT_DIR/auditd_execve.txt"
 
 [ -s "$ERR_DIR/s7_auditd.err" ] \
     && { echo "[INFO] Section 7 (auditd): see errors/s7_auditd.err" >> "$ERRORS_FILE"

@@ -8,7 +8,7 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 source "$PROJECT_ROOT/lib/init.sh"
 log_init "data_exfil_detect"
 
-set -eo pipefail
+set -o pipefail
 
 OUTPUT_DIR="$PROJECT_ROOT/output/exfil_detect"
 mkdir -p "$OUTPUT_DIR"
@@ -47,6 +47,7 @@ log_section "DNS Tunnelling Detection"
 echo "[*] Detecting DNS tunnelling indicators..."
 
 {
+set +o pipefail
     echo "========================================================"
     echo "  DNS Tunnelling Detection"
     echo "========================================================"
@@ -54,9 +55,16 @@ echo "[*] Detecting DNS tunnelling indicators..."
 
     echo "=== High-frequency DNS resolution activity ==="
     dns_count=$(ss -tunap 2>>"$ERR_DIR/s1_dns.err" | grep -cE ':53\b' || true)
-    dns_count=${dns_count:-0}
+
+    # sanitize to a single integer
+    dns_count=$(echo "$dns_count" | head -n1 | tr -dc '0-9')
+
+    # fallback
+    [ -z "$dns_count" ] && dns_count=0
     echo "Current DNS connections: $dns_count"
-    [ "$dns_count" -gt 10 ] && echo "[WARN] High DNS connection count — possible tunnelling"
+    if (( dns_count > 10 )); then
+        echo "[WARN] High DNS connection count — possible tunnelling"
+    fi
     ss -tunap 2>>"$ERR_DIR/s1_dns.err" | grep ':53\b' | head -20 || true
 
     echo
@@ -87,8 +95,13 @@ echo "[*] Detecting DNS tunnelling indicators..."
     echo "=== High TXT record query rate ==="
     for logfile in /var/log/syslog /var/log/messages; do
         [ -r "$logfile" ] || continue
-        count=$(grep -c " TXT " "$logfile" 2>>"$ERR_DIR/s1_dns.err" || echo 0)
-        [ "$count" -gt 50 ] && echo "[WARN] High TXT query count in $logfile: $count"
+        count=$(grep -c " TXT " "$logfile" 2>>"$ERR_DIR/s1_dns.err" || true)
+        count=$(echo "$count" | head -n1 | tr -dc '0-9')
+        [ -z "$count" ] && count=0
+
+        if (( count > 50 )); then
+            echo "[WARN] High TXT query count in $logfile: $count"
+        fi
     done
 
     echo
@@ -106,6 +119,7 @@ echo "[*] Detecting DNS tunnelling indicators..."
             -exec echo "[HIGH] $tool binary found on disk: {}" \; || true
     done
 
+set -o pipefail
 } > "$OUTPUT_DIR/dns_tunnelling.txt"
 _section_err "Section 1 DNS tunnelling" "$ERR_DIR/s1_dns.err"
 
@@ -127,11 +141,9 @@ echo "[*] Detecting ICMP covert channel indicators..."
     echo "  ICMP Covert Channel Detection"
     echo "========================================================"
     echo
-
     echo "=== ICMP socket activity ==="
     cat /proc/net/icmp  2>>"$ERR_DIR/s2_icmp.err" | head -20 || true
     cat /proc/net/icmp6 2>>"$ERR_DIR/s2_icmp.err" | head -20 || true
-
     echo
     echo "=== Processes using raw sockets ==="
     echo "--- /proc/net/raw entries ---"
@@ -171,7 +183,8 @@ if grep -q "\[HIGH\]" "$OUTPUT_DIR/icmp_covert_channels.txt" 2>/dev/null; then
     log_finding "high" "ICMP tunnelling tool found on system" \
         "review icmp_covert_channels.txt"
 fi
-raw_socket_count=$(awk 'NR>1' /proc/net/raw 2>/dev/null | wc -l || echo 0)
+raw_socket_count=$(awk 'NR>1' /proc/net/raw 2>/dev/null | wc -l)
+raw_socket_count=$(echo "$raw_socket_count" | tr -dc '0-9')
 log_metric "raw_socket_entries" "$raw_socket_count" "count"
 
 # SECTION 3 — HTTP/HTTPS C2 BEACONING DETECTION
@@ -368,12 +381,17 @@ PYEOF
 } > "$OUTPUT_DIR/large_outbound_transfers.txt"
 _section_err "Section 4 large outbound transfers" "$ERR_DIR/s4_transfer.err"
 
-if grep -q "\[HIGH TX\!\]" "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null; then
+if grep -q "\[HIGH TX\!\]" "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null || true; then
     log_finding "high" "High outbound data transfer rate detected" \
         "TX rate exceeded 500 KB/s during 2-second sample"
 fi
+
 staged_count=$(find /tmp /var/tmp /dev/shm -type f \
-    \( -name "*.tar*" -o -name "*.zip" -o -name "*.7z" \) 2>/dev/null | wc -l || echo 0)
+    \( -name "*.tar*" -o -name "*.zip" -o -name "*.7z" \) 2>/dev/null | wc -l)
+
+staged_count=$(echo "$staged_count" | tr -dc '0-9')
+[ -z "$staged_count" ] && staged_count=0
+
 log_metric "staged_archives_in_tmp" "$staged_count" "count"
 [ "$staged_count" -gt 0 ] && log_finding "medium" \
     "Archive files found in temporary directories" \
@@ -398,7 +416,7 @@ echo "[*] Checking for steganography indicators..."
 
     echo
     echo "=== Suspicious image files in writable locations ==="
-    find /tmp /var/tmp /dev/shm /home /root -type f \
+    find /tmp /var/tmp /dev/shm /home /root -maxdepth 3 -type f \
         \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" \
            -o -name "*.bmp" -o -name "*.gif" \) \
         -size +100k -ls 2>>"$ERR_DIR/s5_steg.err" | head -20 || true
@@ -442,7 +460,9 @@ PYEOF
 } > "$OUTPUT_DIR/steganography_indicators.txt"
 _section_err "Section 5 steganography" "$ERR_DIR/s5_steg.err"
 
-steg_tools=$(grep -c "^FOUND:" "$OUTPUT_DIR/steganography_indicators.txt" 2>/dev/null || echo 0)
+steg_tools=$(grep -c "^FOUND:" "$OUTPUT_DIR/steganography_indicators.txt" 2>/dev/null || true)
+steg_tools=$(echo "$steg_tools" | head -n1 | tr -dc '0-9')
+[ -z "$steg_tools" ] && steg_tools=0
 log_metric "steganography_tools_found" "$steg_tools" "count"
 [ "$steg_tools" -gt 0 ] && log_finding "medium" \
     "Steganography tools found on system" \
@@ -472,7 +492,7 @@ echo "[*] Running DLP checks for staged sensitive data..."
     echo "=== Password/credential pattern matches in text files ==="
     # shellcheck disable=SC2086
     find /tmp /var/tmp /dev/shm /home /root \
-        -type f -size -5M 2>>"$ERR_DIR/s6_dlp.err" \
+        -maxdepth 3 -type f -size -5M 2>>"$ERR_DIR/s6_dlp.err" \
     | while IFS= read -r f; do
         file "$f" 2>/dev/null | grep -q "text\|ASCII\|UTF-8" || continue
         grep -lniE \
@@ -484,7 +504,7 @@ echo "[*] Running DLP checks for staged sensitive data..."
     echo
     echo "=== Credit card number patterns ==="
     # shellcheck disable=SC2086
-    find $DLP_DIRS -type f -size -10M 2>>"$ERR_DIR/s6_dlp.err" \
+    find $DLP_DIRS -maxdepth 3 -type f -size -10M 2>>"$ERR_DIR/s6_dlp.err" \
     | while IFS= read -r f; do
         file "$f" 2>/dev/null | grep -q "text\|ASCII\|UTF-8" || continue
         grep -lE '\b4[0-9]{15}\b|\b5[1-5][0-9]{14}\b|\b3[47][0-9]{13}\b|\b6011[0-9]{12}\b' \
@@ -494,14 +514,14 @@ echo "[*] Running DLP checks for staged sensitive data..."
 
     echo
     echo "=== Database dumps in staging areas ==="
-    find /tmp /var/tmp /dev/shm /home /root -type f \
+    find /tmp /var/tmp /dev/shm /home /root -maxdepth 3 -type f \
         \( -name "*.sql" -o -name "*.dump" -o -name "*.db" \
            -o -name "*.sqlite" -o -name "*backup*" \) \
         -ls 2>>"$ERR_DIR/s6_dlp.err" | sort -k7 -rn | head -20 || true
 
     echo
     echo "=== /etc/shadow copies in writable locations ==="
-    find /tmp /var/tmp /dev/shm /home /root -type f 2>>"$ERR_DIR/s6_dlp.err" \
+    find /tmp /var/tmp /dev/shm /home /root -maxdepth 3 -type f 2>>"$ERR_DIR/s6_dlp.err" \
     | while IFS= read -r f; do
         head -1 "$f" 2>/dev/null \
             | grep -qE '^\S+:\$[156y]\$' \
@@ -528,7 +548,9 @@ echo "[*] Running DLP checks for staged sensitive data..."
 _section_err "Section 6 DLP" "$ERR_DIR/s6_dlp.err"
 
 for _pat in "SENSITIVE:" "POSSIBLE_PAN:" "POSSIBLE SHADOW COPY:"; do
-    _cnt=$(grep -c "$_pat" "$OUTPUT_DIR/dlp_staging_check.txt" 2>/dev/null || echo 0)
+    _cnt=$(grep -c "$_pat" "$OUTPUT_DIR/dlp_staging_check.txt" 2>/dev/null || true)
+    _cnt=$(echo "$_cnt" | head -n1 | tr -dc '0-9')
+    [ -z "$_cnt" ] && _cnt=0
     if [ "$_cnt" -gt 0 ]; then
         _lbl=$(printf '%s' "$_pat" | tr -d ':' | tr '[:upper:] ' '[:lower:]_')
         log_finding "high" "DLP: ${_pat} matches in staging directories" \
@@ -556,7 +578,7 @@ echo "[*] Detecting protocol-level anomalies..."
 
     echo
     echo "=== Tor indicators ==="
-    if pgrep -x tor >/dev/null 2>&1; then
+    if pgrep -x tor >/dev/null 2>&1 || true; then
         echo "[HIGH] Tor process is running!"
         pgrep -al tor 2>>"$ERR_DIR/s7_proto.err" || true
     fi
@@ -635,7 +657,7 @@ log_metric "high_findings"     "$_high"     "count"
         "$OUTPUT_DIR/http_c2_beaconing.txt" 2>/dev/null \
         && echo "[CRITICAL] Known C2/RAT process names detected"
 
-    grep -q "\[HIGH TX\!\]" "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null \
+    grep -q "\[HIGH TX\!\]" "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null || true\
         && echo "[HIGH] High outbound data transfer rate detected"
 
     _dlp=false
@@ -645,8 +667,7 @@ log_metric "high_findings"     "$_high"     "count"
         "$OUTPUT_DIR/steganography_indicators.txt"  2>/dev/null && _dlp=true
     $_dlp && echo "[HIGH] Sensitive data found in writable/staging directories"
 
-    grep -q "Tor process is running" \
-        "$OUTPUT_DIR/protocol_anomalies.txt" 2>/dev/null \
+    grep -q "Tor process is running" "$OUTPUT_DIR/protocol_anomalies.txt" 2>/dev/null \
         && echo "[HIGH] Tor anonymisation network is active"
 
     grep -qE "FOUND.*steghide|FOUND.*outguess|FOUND.*stegseek" \
@@ -668,7 +689,7 @@ log_metric "high_findings"     "$_high"     "count"
 
     echo
     echo "--- Output Files ---"
-    ls -lh "$OUTPUT_DIR/"*.txt 2>/dev/null
+    ls -lh "$OUTPUT_DIR/"*.txt 2>/dev/null || true
 
 } > "$OUTPUT_DIR/exfil_summary.txt"
 

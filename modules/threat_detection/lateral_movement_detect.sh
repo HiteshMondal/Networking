@@ -54,6 +54,7 @@ done
 if [ -n "$AUTH_LOG" ]; then
 
     {
+set +o pipefail
         echo "=== Failed SSH login attempts (top 30 by IP) ==="
         grep "Failed password" "$AUTH_LOG" 2>>"$ERR_DIR/s1_auth.err" \
             | grep -oP 'from \K[\d.]+' | sort | uniq -c | sort -rn | head -30
@@ -62,10 +63,12 @@ if [ -n "$AUTH_LOG" ]; then
         echo "=== Failed login usernames (top 20) ==="
         grep "Failed password" "$AUTH_LOG" 2>>"$ERR_DIR/s1_auth.err" \
             | grep -oP 'for \K\S+' | sort | uniq -c | sort -rn | head -20
+set -o pipefail
     } > "$OUTPUT_DIR/failed_logins.txt"
     _section_err "Section 1 failed logins" "$ERR_DIR/s1_auth.err"
 
-    failed_event_count=$(grep -c "Failed password" "$AUTH_LOG" 2>/dev/null || echo 0)
+    failed_event_count=$(grep -c "Failed password" "$AUTH_LOG" 2>/dev/null || true)
+    failed_event_count=$(echo "${failed_event_count:-0}" | tr -d '[:space:]')
     log_metric "failed_ssh_login_events" "$failed_event_count" "count"
 
     echo "[*] Brute-force burst detection..."
@@ -110,7 +113,8 @@ if not found:
 PYEOF
     _section_err "Section 1 brute force" "$ERR_DIR/s1_brute.err"
 
-    burst_count=$(grep -cE '^\d' "$OUTPUT_DIR/bruteforce_bursts.txt" 2>/dev/null || echo 0)
+    burst_count=$(grep -cE '^\d' "$OUTPUT_DIR/bruteforce_bursts.txt" 2>/dev/null || true)
+    burst_count=$(echo "${burst_count:-0}" | tr -d '[:space:]')
     if [ "$burst_count" -gt 0 ]; then
         log_finding "high" "SSH brute-force bursts detected" \
             "count=$burst_count IPs with ≥5 failures in 60s — review bruteforce_bursts.txt"
@@ -118,30 +122,31 @@ PYEOF
 
     echo "[*] Checking for success after failures..."
     {
+set +o pipefail
         echo "=== IPs with both failures AND successes ==="
         _failed_tmp=$(mktemp)
         _accepted_tmp=$(mktemp)
-        grep "Failed password" "$AUTH_LOG" 2>>"$ERR_DIR/s1_spray.err" \
+        { grep "Failed password" "$AUTH_LOG" 2>>"$ERR_DIR/s1_spray.err" || true; } \
             | grep -oP 'from \K[\d.]+' | sort -u > "$_failed_tmp"
-        grep "Accepted " "$AUTH_LOG" 2>>"$ERR_DIR/s1_spray.err" \
+        { grep "Accepted " "$AUTH_LOG" 2>>"$ERR_DIR/s1_spray.err" || true; } \
             | grep -oP 'from \K[\d.]+' | sort -u > "$_accepted_tmp"
         comm -12 "$_failed_tmp" "$_accepted_tmp"
         rm -f "$_failed_tmp" "$_accepted_tmp"
-    } > "$OUTPUT_DIR/spray_success_ips.txt" 2>>"$ERR_DIR/s1_spray.err" \
-        || _note_err "spray success detection" $?
+set -o pipefail
+    } > "$OUTPUT_DIR/spray_success_ips.txt" 2>>"$ERR_DIR/s1_spray.err"
     _section_err "Section 1 spray" "$ERR_DIR/s1_spray.err"
 
-    spray_count=$(grep -cE '^[0-9]' "$OUTPUT_DIR/spray_success_ips.txt" 2>/dev/null || echo 0)
+    spray_count=$(grep -cE '^[0-9]' "$OUTPUT_DIR/spray_success_ips.txt" 2>/dev/null || true)
+    spray_count=$(echo "${spray_count:-0}" | tr -d '[:space:]')
     log_metric "spray_success_ips" "$spray_count" "count"
     if [ "$spray_count" -gt 0 ]; then
         log_finding "critical" "Password spray success: IPs with failures AND accepted logins" \
             "count=$spray_count — review spray_success_ips.txt immediately"
     fi
 
-    grep "Accepted " "$AUTH_LOG" 2>"$ERR_DIR/s1_offhours.err" \
+    { grep "Accepted " "$AUTH_LOG" 2>"$ERR_DIR/s1_offhours.err" || true; } \
         | awk '{split($3,t,":");h=t[1]+0;if(h<7||h>=19)print $0}' \
-        > "$OUTPUT_DIR/offhours_logins.txt" \
-        || _note_err "off-hours logins" $?
+        > "$OUTPUT_DIR/offhours_logins.txt" || true
     _section_err "Section 1 off-hours" "$ERR_DIR/s1_offhours.err"
 
     offhours_count=$(wc -l < "$OUTPUT_DIR/offhours_logins.txt" 2>/dev/null || echo 0)
@@ -150,10 +155,9 @@ PYEOF
         "Off-hours successful logins detected" \
         "count=$offhours_count events outside 07:00-19:00"
 
-    grep "Accepted " "$AUTH_LOG" 2>"$ERR_DIR/s1_accepted.err" \
+    { grep "Accepted " "$AUTH_LOG" 2>"$ERR_DIR/s1_accepted.err" || true; } \
         | grep -oP 'from \K[\d.]+' | sort | uniq -c | sort -rn \
-        > "$OUTPUT_DIR/accepted_login_ips.txt" \
-        || _note_err "accepted login IPs" $?
+        > "$OUTPUT_DIR/accepted_login_ips.txt" || true
     _section_err "Section 1 accepted IPs" "$ERR_DIR/s1_accepted.err"
 
     grep "Accepted.*root\|session opened.*root" "$AUTH_LOG" 2>"$ERR_DIR/s1_root.err" \
@@ -185,10 +189,11 @@ fi
 log_section "SSH Lateral Movement Indicators"
 echo "[*] Checking SSH lateral movement indicators..."
 
-ss -tnp state established 2>"$ERR_DIR/s2_ssh_conns.err" \
+{ ss -tnp state established 2>"$ERR_DIR/s2_ssh_conns.err" \
+  || ss -tnp 2>>"$ERR_DIR/s2_ssh_conns.err" \
+  || true; } \
     | awk '$4 ~ /:22$/ || $5 ~ /:22$/ {print}' \
-    > "$OUTPUT_DIR/ssh_established_connections.txt" \
-    || _note_err "ssh established connections" $?
+    > "$OUTPUT_DIR/ssh_established_connections.txt"
 _section_err "Section 2 SSH connections" "$ERR_DIR/s2_ssh_conns.err"
 
 ssh_conn_count=$(wc -l < "$OUTPUT_DIR/ssh_established_connections.txt" 2>/dev/null || echo 0)
@@ -204,17 +209,19 @@ log_metric "ssh_established_connections" "$ssh_conn_count" "count"
 } > "$OUTPUT_DIR/ssh_known_hosts.txt"
 _section_err "Section 2 known_hosts" "$ERR_DIR/s2_known_hosts.err"
 
-known_host_count=$(grep -cvE '^===|^$' "$OUTPUT_DIR/ssh_known_hosts.txt" 2>/dev/null || echo 0)
+known_host_count=$(grep -cvE '^===|^$' "$OUTPUT_DIR/ssh_known_hosts.txt" 2>/dev/null || true)
+known_host_count=$(echo "${known_host_count:-0}" | tr -d '[:space:]')
 log_metric "known_hosts_entries" "$known_host_count" "count"
 
 {
     echo "=== SSH_AUTH_SOCK in running processes ==="
-    grep -l "SSH_AUTH_SOCK" /proc/*/environ 2>>"$ERR_DIR/s2_agent.err" \
+    { grep -l "SSH_AUTH_SOCK" /proc/*/environ 2>>"$ERR_DIR/s2_agent.err" || true; } \
     | while IFS= read -r env_file; do
         pid=$(echo "$env_file" | grep -oE '[0-9]+' | head -1)
         exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo "unknown")
         echo "PID $pid ($exe): SSH agent socket forwarded"
-        tr '\0' '\n' < "$env_file" 2>>"$ERR_DIR/s2_agent.err" | grep "SSH_AUTH_SOCK"
+        tr '\0' '\n' < "$env_file" 2>>"$ERR_DIR/s2_agent.err" \
+            | grep "SSH_AUTH_SOCK" || true
     done
 } > "$OUTPUT_DIR/ssh_agent_forwarding.txt"
 _section_err "Section 2 SSH agent" "$ERR_DIR/s2_agent.err"
@@ -321,20 +328,22 @@ find /home /root /var/www /opt /etc -type f 2>"$ERR_DIR/s3_credfiles.err" \
     || _note_err "credential file search" $?
 _section_err "Section 3 credential files" "$ERR_DIR/s3_credfiles.err"
 
-cred_file_count=$(grep -cE '^[0-9 ]' "$OUTPUT_DIR/credential_files.txt" 2>/dev/null || echo 0)
+cred_file_count=$(grep -cE '^[0-9 ]' "$OUTPUT_DIR/credential_files.txt" 2>/dev/null || true)
+cred_file_count=$(echo "${cred_file_count:-0}" | tr -d '[:space:]')
 log_metric "exposed_credential_files" "$cred_file_count" "count"
 [ "$cred_file_count" -gt 0 ] && log_finding "high" \
     "Exposed credential files found" "count=$cred_file_count — review credential_files.txt"
 
 echo "[*] Checking shell history for credentials..."
 : > "$OUTPUT_DIR/history_credential_exposure.txt"
-find /home /root -name ".*history" -type f -size -5M 2>"$ERR_DIR/s3_histcreds.err" \
+{ find /home /root -name ".*history" -type f -size -5M \
+    2>"$ERR_DIR/s3_histcreds.err" || true; } \
 | while IFS= read -r hist; do
     echo "=== $hist ===" >> "$OUTPUT_DIR/history_credential_exposure.txt"
-    grep -iE '(password|passwd|secret|token|key|curl.*-u|wget.*--user|mysql.*-p|sshpass)' \
-        "$hist" 2>>"$ERR_DIR/s3_histcreds.err" | head -20 \
+    { grep -iE '(password|passwd|secret|token|key|curl.*-u|wget.*--user|mysql.*-p|sshpass)' \
+        "$hist" 2>>"$ERR_DIR/s3_histcreds.err" || true; } | head -20 \
         >> "$OUTPUT_DIR/history_credential_exposure.txt"
-done
+done || true
 _section_err "Section 3 history credentials" "$ERR_DIR/s3_histcreds.err"
 
 echo "[*] Checking for credential-dumping tools..."
@@ -382,7 +391,8 @@ _section_err "Section 4 network mounts" "$ERR_DIR/s4_shares.err"
 
 {
     echo "=== SMB connections from this host ==="
-    ss -tnp state established 2>>"$ERR_DIR/s4_smb.err" \
+    { ss -tnp state established 2>>"$ERR_DIR/s4_smb.err" \
+      || ss -tnp 2>>"$ERR_DIR/s4_smb.err" || true; } \
         | awk '$5 ~ /:445$/ || $5 ~ /:139$/ {print}'
 
     echo
@@ -541,8 +551,10 @@ log_section "Internal Network Reconnaissance Signs"
 echo "[*] Checking for internal network reconnaissance signs..."
 
 {
+set +o pipefail
     echo "=== ARP table ==="
-    arp_count=$(ip neigh show 2>>"$ERR_DIR/s8_recon.err" | wc -l)
+    arp_count=$(ip neigh show 2>>"$ERR_DIR/s8_recon.err" | wc -l || true)
+    arp_count=$(echo "${arp_count:-0}" | tr -d '[:space:]')
     echo "Total ARP entries: $arp_count"
     [ "$arp_count" -gt 100 ] && echo "WARNING: High ARP entry count — possible ARP scan"
     ip neigh show 2>>"$ERR_DIR/s8_recon.err" | head -30
@@ -559,15 +571,18 @@ echo "[*] Checking for internal network reconnaissance signs..."
 
     echo
     echo "=== TCP connection bursts to sequential IPs ==="
-    ss -tnp state established 2>>"$ERR_DIR/s8_recon.err" \
+    { ss -tnp state established 2>>"$ERR_DIR/s8_recon.err" \
+      || ss -tnp 2>>"$ERR_DIR/s8_recon.err" || true; } \
         | awk 'NR>1{print $5}' \
         | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' \
         | sort | uniq -c | sort -rn | head -10
-
+set -o pipefail
 } > "$OUTPUT_DIR/network_recon_indicators.txt"
 _section_err "Section 8 network recon" "$ERR_DIR/s8_recon.err"
 
-log_metric "arp_table_entries" "$(ip neigh show 2>/dev/null | wc -l || echo 0)" "count"
+_arp_count=$(ip neigh show 2>/dev/null | wc -l || true)
+_arp_count=$(echo "${_arp_count:-0}" | tr -d '[:space:]')
+log_metric "arp_table_entries" "$_arp_count" "count"
 
 # SECTION 9 — WTMP / UTMP / BTMP ANALYSIS
 
@@ -575,6 +590,7 @@ log_section "Login Record Analysis"
 echo "[*] Analysing login record databases..."
 
 {
+set +o pipefail
     echo "=== last (successful logins) ==="
     last -n 100 -i 2>>"$ERR_DIR/s9_logins.err" || last -n 100 2>>"$ERR_DIR/s9_logins.err" || true
 
@@ -589,7 +605,7 @@ echo "[*] Analysing login record databases..."
     echo
     echo "=== lastlog (last login per account) ==="
     lastlog 2>>"$ERR_DIR/s9_logins.err" | grep -v "Never logged in" | head -30 || true
-
+set -o pipefail
 } > "$OUTPUT_DIR/login_records.txt"
 _section_err "Section 9 login records" "$ERR_DIR/s9_logins.err"
 
@@ -600,12 +616,14 @@ echo "[*] Generating lateral movement summary report..."
 
 # collect counts here for both display and log_metric
 # failed_logins.txt has IP counts like "  42 1.2.3.4" — use the actual auth log count
-failed_event_count=$(grep -c "Failed password" "${AUTH_LOG:-/dev/null}" 2>/dev/null || echo 0)
+failed_event_count=$(grep -c "Failed password" "${AUTH_LOG:-/dev/null}" 2>/dev/null || true)
+failed_event_count=$(echo "${failed_event_count:-0}" | tr -d '[:space:]')
 root_login_count=$(wc -l < "$OUTPUT_DIR/root_logins.txt" 2>/dev/null || echo 0)
 offhours_count=$(wc -l < "$OUTPUT_DIR/offhours_logins.txt" 2>/dev/null || echo 0)
 # spray_success_ips.txt contains bare IPs from comm -12; -vc '^===' counted
 # blank lines and all non-header content. Count only lines that look like IPs.
-spray_ip_count=$(grep -cE '^[0-9]' "$OUTPUT_DIR/spray_success_ips.txt" 2>/dev/null || echo 0)
+spray_ip_count=$(grep -cE '^[0-9]' "$OUTPUT_DIR/spray_success_ips.txt" 2>/dev/null || true)
+spray_ip_count=$(echo "${spray_ip_count:-0}" | tr -d '[:space:]')
 
 log_metric "failed_login_events"  "$failed_event_count" "count"
 log_metric "root_login_events"    "$root_login_count"   "count"

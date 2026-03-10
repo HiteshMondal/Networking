@@ -44,16 +44,18 @@ date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
 
 log_section "Target Acquisition"
 
-if [ -n "${1:-}" ]; then
-    RAW_TARGET="${1:-}"
+if [[ -n "${1:-}" ]]; then
+    RAW_TARGET="$1"
 
-elif [ -t 0 ]; then
-    echo -n "Enter target URL: "
-    read -r RAW_TARGET
+elif [[ -n "${TARGET:-}" ]]; then
+    RAW_TARGET="$TARGET"
 
 else
-    echo "[-] No target provided and no interactive terminal available." >&2
-    echo "Usage: $0 <target>" >&2
+    log_error "No target provided."
+    echo "Usage:"
+    echo "  web_recon.sh <target>"
+    echo "or"
+    echo "  TARGET=example.com web_recon.sh"
     exit 1
 fi
 
@@ -91,7 +93,7 @@ for f in "$ERR_DIR"/dns_*.err "$ERR_DIR/host.err" "$ERR_DIR/ns.err" "$ERR_DIR/wh
     _section_err "DNS enum $(basename "$f" .err)" "$f"
 done
 
-resolved_ip=$(getent ahosts "$TARGET" | awk '{print $1; exit}')
+resolved_ip=$(dig +short "$TARGET" 2>/dev/null | grep -oE '^[0-9.]+' | head -1 || true)
 log_metric "resolved_ip" "${resolved_ip:-unresolved}" "label"
 [ -z "$resolved_ip" ] && log_finding "medium" "Target hostname did not resolve to an IP" \
     "target=$TARGET — DNS may be unreachable or target is offline"
@@ -119,7 +121,7 @@ curl -I --max-time 15 "https://$TARGET" > "$OUTPUT_DIR/curl_https_headers.txt" 2
 # Check for security-relevant response headers
 for hdr_file in "$OUTPUT_DIR/curl_http_headers.txt" "$OUTPUT_DIR/curl_https_headers.txt"; do
     [ -s "$hdr_file" ] || continue
-    proto=$(basename "$hdr_file" | grep -oE 'http[s]?')
+    proto=$(echo "$hdr_file" | grep -oE 'http[s]*')
     grep -qiE 'Strict-Transport-Security' "$hdr_file" \
         || log_finding "low" "Missing HSTS header on $proto" "target=$TARGET"
     grep -qiE 'X-Frame-Options|Content-Security-Policy' "$hdr_file" \
@@ -197,8 +199,7 @@ if command -v nikto >/dev/null 2>&1; then
         || _note_err "nikto" $?
     _section_err "Section 6 nikto" "$ERR_DIR/nikto.err"
 
-    nikto_findings=$(grep -cE 'OSVDB|CVE|WARNING' "$OUTPUT_DIR/nikto_http.txt" 2>/dev/null || true)
-    nikto_findings=${nikto_findings:-0}
+    nikto_findings=$(grep -cE 'OSVDB|CVE|WARNING' "$OUTPUT_DIR/nikto_http.txt" 2>/dev/null || echo 0)
     log_metric "nikto_findings" "$nikto_findings" "count"
     [ "$nikto_findings" -gt 0 ] && log_finding "medium" \
         "Nikto found potential web vulnerabilities" \
@@ -231,7 +232,7 @@ command -v sslyze >/dev/null 2>&1 && \
     sslyze --regular "$TARGET" > "$OUTPUT_DIR/sslyze.txt" 2>/dev/null || true
 
 if command -v openssl >/dev/null 2>&1; then
-    timeout 10 openssl s_client -connect "$TARGET:443" \
+    openssl s_client -connect "$TARGET:443" \
         -servername "$TARGET" -showcerts \
         < /dev/null > "$OUTPUT_DIR/openssl_sclient.pem" 2>/dev/null || true
     openssl x509 -in "$OUTPUT_DIR/openssl_sclient.pem" \
@@ -243,8 +244,7 @@ if command -v openssl >/dev/null 2>&1; then
         -noout -enddate 2>/dev/null | cut -d= -f2 || true)
     if [ -n "$expiry" ]; then
         log_metric "tls_cert_expiry" "$expiry" "date"
-        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || \
-               date -jf "%b %d %T %Y %Z" "$expiry" +%s 2>/dev/null)
+        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || true)
         now_epoch=$(date +%s)
         if [ -n "$expiry_epoch" ] && [ "$expiry_epoch" -lt "$now_epoch" ]; then
             log_finding "high" "TLS certificate has expired" \
@@ -276,7 +276,7 @@ curl -sL --max-time 20 "https://$TARGET" > "$OUTPUT_DIR/page_https.html" 2>/dev/
 # Extract links and forms for further recon
 for html in "$OUTPUT_DIR/page_http.html" "$OUTPUT_DIR/page_https.html"; do
     [ -s "$html" ] || continue
-    proto=$(basename "$html" | grep -oE 'http[s]?')
+    proto=$(echo "$html" | grep -oE 'http[s]*')
     grep -oiE 'href="[^"]*"|src="[^"]*"' "$html" | sort -u \
         > "$OUTPUT_DIR/links_${proto}.txt" 2>/dev/null || true
     grep -oiE '<form[^>]*>' "$html" \

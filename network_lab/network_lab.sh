@@ -115,14 +115,43 @@ _network_lab_menu() {
     echo -e "  ${GREEN} 11.${NC}  Network Hardening         ${MUTED}SSH, VPN, Zero Trust${NC}"
     echo -e "  ${GREEN} 12.${NC}  Threat Intelligence       ${MUTED}OSINT, CVE, ATT&CK${NC}"
     echo
+    echo -e "  ${AMBER}Automation${NC}"
+    echo -e "  ${GREEN} 13.${NC}  Run All Network Lab Modules"
+    echo
     echo -e "  ${RED}  0.${NC}  Back to Main Menu"
     echo
     echo -e "${BORDER}${border}${NC}"
 }
 
+run_all_network_lab_modules() {
+    clear
+    show_banner
+    echo
+    echo -e "  ${ACCENT}[>] Running ALL Network Lab modules sequentially"
+    echo -e "  ${WARNING}[~] This will execute every networking lab topic."
+    echo
+    echo -e "  ${PROMPT}Starting in 3 seconds... Press Ctrl+C to cancel.${NC}"
+    sleep 3
+    _network_lab_launch "Network Tools"         "network_lab/networking/network_tools.sh"
+    _network_lab_launch "Core Protocols"        "network_lab/networking/core_protocols.sh"
+    _network_lab_launch "IP Addressing"         "network_lab/diagnostics/ip_addressing.sh"
+    _network_lab_launch "Packet Analysis"       "network_lab/diagnostics/packet_analysis.sh"
+    _network_lab_launch "Network Master"        "network_lab/networking/network_master.sh"
+    _network_lab_launch "Networking Basics"     "network_lab/networking/networking_basics.sh"
+    _network_lab_launch "Switching & Routing"   "network_lab/networking/switching_routing.sh"
+    _network_lab_launch "Security Fundamentals" "network_lab/security/security_fundamentals.sh"
+    _network_lab_launch "Wireless Security"     "network_lab/security/wireless_security.sh"
+    _network_lab_launch "Firewall & IDS/IPS"    "network_lab/security/firewall_ids.sh"
+    _network_lab_launch "Network Hardening"     "network_lab/networking/network_hardening.sh"
+    _network_lab_launch "Threat Intelligence"   "network_lab/security/threat_intelligence.sh"
+    echo
+    log_success "All Network Lab modules completed."
+    echo
+    read -rp "$(echo -e "  ${MUTED}Press Enter to return to the menu...${NC}")"
+}
+
 # ENTRY POINT
 network_lab() {
-
     _network_lab_init
 
     while true; do
@@ -142,6 +171,7 @@ network_lab() {
             10) _network_lab_launch "Firewall & IDS/IPS"    "network_lab/security/firewall_ids.sh" ;;
             11) _network_lab_launch "Network Hardening"     "network_lab/networking/network_hardening.sh" ;;
             12) _network_lab_launch "Threat Intelligence"   "network_lab/security/threat_intelligence.sh" ;;
+            13) run_all_network_lab_modules ;;
             0)
                 log_info "Returning to main menu..."
                 return 0
