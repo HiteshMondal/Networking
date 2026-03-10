@@ -2,15 +2,12 @@
 
 # /network_lab/network_lab.sh
 # Network Lab controller and menu handler
-
+chmod -R +x network_lab
 # DOUBLE SOURCE GUARD
-
 [[ -n "$_NETWORK_LAB_LOADED" ]] && return 0
 _NETWORK_LAB_LOADED=1
 
-
 # PATH RESOLUTION
-
 NETWORK_LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${PROJECT_ROOT:="$(dirname "$NETWORK_LAB_DIR")"}"
 
@@ -20,17 +17,13 @@ PROJECT_ROOT="$(dirname "$NETWORK_LAB_DIR")"
 source "$PROJECT_ROOT/lib/init.sh"
 
 # INIT DIRECTORIES
-
 _network_lab_init() {
     mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 }
 
-
 # TOOL LAUNCH HELPER
 # Usage: _network_lab_launch "Label" "network_lab/script.sh"
-
 _network_lab_launch() {
-
     local label="$1"
     local relative_path="$2"
     local full_path="$PROJECT_ROOT/$relative_path"
@@ -50,9 +43,7 @@ _network_lab_launch() {
 
     local log_file="${LOG_DIR}/${safe_label}_$(date '+%Y%m%d_%H%M%S').log"
 
-
     # HEADER
-
     clear
     show_banner
 
@@ -68,7 +59,6 @@ _network_lab_launch() {
     log_info "Log: ${log_file}"
     echo
 
-
     {
         echo "=== ${label} started at $(date) ==="
 
@@ -82,7 +72,6 @@ _network_lab_launch() {
 
     local exit_code="${PIPESTATUS[0]}"
 
-
     echo
     echo -e "  ${DARK_GRAY}$(printf '%*s' 50 '' | tr ' ' '-')${NC}"
 
@@ -95,11 +84,8 @@ _network_lab_launch() {
     return $exit_code
 }
 
-
 # MENU
-
 _network_lab_menu() {
-
     clear
     show_banner
 
@@ -111,36 +97,30 @@ _network_lab_menu() {
     printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "NETWORK LAB"
     echo -e "${BORDER}${border}${NC}"
     echo
-
     echo -e "  ${AMBER}Diagnostics & Live Analysis${NC}"
     echo -e "  ${GREEN}  1.${NC}  Network Tools             ${MUTED}Interfaces, ports, ping, traceroute${NC}"
     echo -e "  ${GREEN}  2.${NC}  Core Protocols            ${MUTED}TCP/UDP, HTTP, DNS, ICMP${NC}"
     echo -e "  ${GREEN}  3.${NC}  IP Addressing             ${MUTED}Subnetting, NAT, ARP${NC}"
     echo -e "  ${GREEN}  4.${NC}  Packet Analysis           ${MUTED}Headers, Wireshark filters, PCAP${NC}"
     echo
-
     echo -e "  ${AMBER}Education & Reference${NC}"
     echo -e "  ${GREEN}  5.${NC}  Network Master            ${MUTED}All networking topics${NC}"
     echo -e "  ${GREEN}  6.${NC}  Networking Basics         ${MUTED}OSI, TCP/IP, switching${NC}"
     echo -e "  ${GREEN}  7.${NC}  Switching & Routing       ${MUTED}VLANs, MAC, RIP/OSPF/BGP${NC}"
     echo -e "  ${GREEN}  8.${NC}  Security Fundamentals     ${MUTED}CIA, TLS, AES, hashing${NC}"
     echo
-
     echo -e "  ${AMBER}Advanced Security${NC}"
     echo -e "  ${GREEN}  9.${NC}  Wireless Security         ${MUTED}WiFi standards, WPA3, attacks${NC}"
     echo -e "  ${GREEN} 10.${NC}  Firewall & IDS/IPS        ${MUTED}iptables, nftables, Snort${NC}"
     echo -e "  ${GREEN} 11.${NC}  Network Hardening         ${MUTED}SSH, VPN, Zero Trust${NC}"
     echo -e "  ${GREEN} 12.${NC}  Threat Intelligence       ${MUTED}OSINT, CVE, ATT&CK${NC}"
     echo
-
     echo -e "  ${RED}  0.${NC}  Back to Main Menu"
     echo
     echo -e "${BORDER}${border}${NC}"
 }
 
-
 # ENTRY POINT
-
 network_lab() {
 
     _network_lab_init

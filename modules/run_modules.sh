@@ -51,8 +51,9 @@ show_modules_menu() {
 execute_module() {
 
     local module_path="$1"
+    local module_target="$TARGET"
     local module_name
-    module_name=$(basename "$module_path")
+    module_name=$(basename "$module_path" "$module_target")
 
     local timestamp
     timestamp=$(date +"%Y%m%d_%H%M%S")
@@ -130,6 +131,7 @@ execute_module() {
     echo -e "${BORDER}${border}${NC}"
     echo
     kv "  Module"  "$module_path"
+    kv "  Target" "$module_target"
     kv "  Log"     "$log_file"
     kv "  Timeout" "${module_timeout}s"
     echo
@@ -168,7 +170,7 @@ execute_module() {
         log_error "Failed to create output directory: $OUTPUT_DIR"
         return 1
     }
-    chmod +x "$module_path" 2>/dev/null
+    chmod +x "$module_path" "$module_target" 2>/dev/null
     echo "=== Execution started at $(date) ===" > "$log_file"
     echo -e "  ${DARK_GRAY}$(printf '%*s' "$W" '' | tr ' ' '-')${NC}"
     echo
@@ -180,9 +182,9 @@ execute_module() {
         cd "$OUTPUT_DIR" || exit 1
 
         if [ -n "$module_timeout" ]; then
-            timeout "$module_timeout" "$module_path"
+            timeout "$module_timeout" "$module_path" "$module_target" "$module_target"
         else
-            "$module_path"
+            "$module_path" "$module_target" "$module_target"
         fi
 
     ) 2>&1 | tee -a "$log_file" &

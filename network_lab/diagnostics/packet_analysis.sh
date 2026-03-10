@@ -47,11 +47,11 @@ INFO
 
     section "Live Ethernet Frame Capture"
     local iface
-    iface=$(ip link show 2>/dev/null | grep -oP '^\d+: \K[^:@]+' | grep -v lo | head -1)
+    iface=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n1)
     echo -e "  ${MUTED}Capturing 5 Ethernet frames on ${iface:-eth0}...${NC}"
     echo
     if cmd_exists tcpdump; then
-        sudo tcpdump -i "${iface:-eth0}" -c 5 -e -nn 2>/dev/null | while IFS= read -r line; do
+        sudo -n tcpdump -i "${iface:-eth0}" -c 5 -e -nn 2>/dev/null | while IFS= read -r line; do
             echo -e "  ${CYAN}${line}${NC}"
         done || echo -e "  ${MUTED}Capture unavailable (requires sudo)${NC}"
     else
@@ -60,7 +60,10 @@ INFO
 
     section "MTU & Fragmentation"
     echo -e "${INFO}Interface MTU values:${NC}"
-    ip link show 2>/dev/null | awk '/mtu/{printf "  %-14s MTU: %s\n", $2, $5}' | head -10
+    ip -o link show | awk -F': ' '{print $2}' | while read -r iface; do
+        mtu=$(cat /sys/class/net/$iface/mtu 2>/dev/null)
+        printf "  %-14s MTU: %s\n" "$iface" "$mtu"
+    done
 
     echo
     echo -e "${INFO}Path MTU discovery test (PMTUD):${NC}"
@@ -133,7 +136,7 @@ INFO
     echo -e "${INFO}TTL on packets from common hosts:${NC}"
     for host in 8.8.8.8 1.1.1.1; do
         local ttl
-        ttl=$(ping -c 1 -W 2 "$host" 2>/dev/null | grep -oP 'ttl=\K\d+')
+        ttl=$(ping -c 1 -W 2 "$host" 2>/dev/null | grep -oP '^\d+: \K[^:@]+' 'ttl=\K\d+')
         if [[ -n "$ttl" ]]; then
             local initial
             if   (( ttl > 64  )); then initial=128
@@ -391,13 +394,13 @@ CMDS
 
     section "Live Capture Demo"
     local iface
-    iface=$(ip link show 2>/dev/null | grep -oP '^\d+: \K[^:@]+' | grep -v lo | head -1)
+    iface=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | head -n1)
     read -rp "$(echo -e "  ${PROMPT}Run live 10-packet capture on ${iface:-eth0}? [y/N]:${NC} ")" yn
     if [[ "$yn" =~ ^[yY] ]]; then
         echo
         echo -e "  ${MUTED}Capturing 10 packets — press Ctrl+C to stop early...${NC}"
         echo
-        sudo tcpdump -i "${iface:-eth0}" -c 10 -nn -q 2>/dev/null | sed 's/^/  /' \
+        sudo -n tcpdump -i "${iface:-eth0}" -c 10 -nn -q 2>/dev/null | sed 's/^/  /' \
             || echo -e "  ${MUTED}Capture failed — requires sudo or tcpdump${NC}"
     fi
 }
@@ -428,7 +431,7 @@ INFO
     echo
 
     local ifaces
-    ifaces=$(ip link show 2>/dev/null | grep -oP '^\d+: \K[^:@]+' | grep -v lo)
+    ifaces=$(ip link show 2>/dev/null | grep -oP '^\d+: \K[^:@]+' '^\d+: \K[^:@]+' | grep -v lo)
 
     declare -A rx1 tx1 rxp1 txp1
     for iface in $ifaces; do

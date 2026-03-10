@@ -31,6 +31,7 @@ MODULES_DIR="$PROJECT_ROOT/modules"
 LOG_DIR="$PROJECT_ROOT/logs"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 DASHBOARD_DIR="$PROJECT_ROOT/dashboard"
+TARGET=""
 
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR"
 touch "$LOG_DIR/main.log"
@@ -44,6 +45,8 @@ show_main_menu() {
     echo -e "${BORDER}${border}${NC}"
     printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "MAIN MENU"
     echo -e "${BORDER}${border}${NC}"
+    echo
+    echo -e "  ${MUTED}Current Target:${NC} ${GREEN}${TARGET:-Not Set}${NC}"
     echo
     echo -e "  ${LABEL}SECURITY${NC}"
     echo -e "  ${GREEN}  1.${NC}  Run Security Modules"
@@ -63,6 +66,26 @@ show_main_menu() {
     echo -e "  ${RED}  0.${NC}  Exit"
     echo
     echo -e "${BORDER}${border}${NC}"
+}
+
+# CENTRAL TARGET
+set_target() {
+    clear
+    show_banner
+
+    echo -e "${LABEL}TARGET CONFIGURATION${NC}"
+    echo
+
+    read -rp "$(echo -e "${PROMPT}[?] Enter target (domain/IP/URL): ${NC}")" TARGET
+
+    if [[ -z "$TARGET" ]]; then
+        log_error "Target cannot be empty"
+        sleep 1
+        return
+    fi
+
+    log_success "Target set to: $TARGET"
+    sleep 1
 }
 
 # VIEW LOGS
@@ -174,6 +197,9 @@ main() {
 
         case $choice in
             1)
+            if [[ -z "$TARGET" ]]; then
+                set_target
+            fi    
                 while true; do
                     show_modules_menu
                     read -rp "$(echo -e "  ${PROMPT}[?] Enter your choice: ${NC}")" module_choice

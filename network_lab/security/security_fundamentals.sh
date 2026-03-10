@@ -79,7 +79,7 @@ INFO
     kv "Load average"   "$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
 
     if systemctl is-active --quiet ufw 2>/dev/null || \
-       sudo iptables -L 2>/dev/null | grep -qE "DROP|REJECT"; then
+       sudo -n iptables -L 2>/dev/null 2>/dev/null | grep -qE "DROP|REJECT"; then
         status_line ok  "Firewall active"
     else
         status_line warn "No active firewall detected"
@@ -769,12 +769,12 @@ permission_audit() {
     echo
     echo -e "${INFO}Unowned files (no valid user/group):${NC}"
     local unowned
-    unowned=$(find /etc /var /home -maxdepth 3 -nouser -o -nogroup 2>/dev/null | head -5)
+    unowned=$(find /etc /var /home -maxdepth 3 \( -nouser -o -nogroup \) 2>/dev/null | head -5)
     [[ -n "$unowned" ]] && echo -e "${WARNING}${unowned}${NC}" || status_line ok "None found"
 
     echo
     echo -e "${INFO}SUID/SGID binaries:${NC}"
-    find /usr /bin /sbin -maxdepth 3 \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null | \
+    find /usr/bin /usr/sbin /bin /sbin -type f 2>/dev/null | \
         while read -r f; do
             local perms owner
             perms=$(stat -c '%a' "$f" 2>/dev/null)
