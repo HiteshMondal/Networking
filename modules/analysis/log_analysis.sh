@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 source "$PROJECT_ROOT/lib/init.sh"
+log_init "log_analysis"
 
 set -eo pipefail
 
@@ -19,7 +20,9 @@ ERRORS_FILE="$OUTPUT_DIR/errors_summary.txt"
 
 _note_err() {
     local label="$1" ec="${2:-?}"
-    echo "[ERROR] '$label' failed (exit $ec)" >> "$ERRORS_FILE"
+    local msg="[ERROR] '$label' failed (exit $ec)"
+    echo "$msg" >> "$ERRORS_FILE"
+    log_error "$msg"
 }
 
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
@@ -29,6 +32,7 @@ whoami   >> "$OUTPUT_DIR/run_timestamp.txt"
 
 # SECTION 1 — LOG INVENTORY
 
+log_section "Log Inventory"
 echo "[*] Inventorying log files..."
 
 {
@@ -52,11 +56,13 @@ echo "[*] Inventorying log files..."
 } > "$OUTPUT_DIR/log_inventory.txt"
 
 [ -s "$ERR_DIR/s1_inventory.err" ] \
-    && echo "[WARN] Section 1 (Log Inventory): see errors/s1_inventory.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 1 (Log Inventory): see errors/s1_inventory.err" >> "$ERRORS_FILE"
+         log_warning "Section 1 (Log Inventory) had errors"; } \
     || rm -f "$ERR_DIR/s1_inventory.err"
 
 # SECTION 2 — LOG TAMPERING DETECTION
 
+log_section "Log Tampering Detection"
 echo "[*] Checking for log tampering indicators..."
 
 {
@@ -110,21 +116,29 @@ echo "[*] Checking for log tampering indicators..."
 } > "$OUTPUT_DIR/log_tampering_detection.txt"
 
 [ -s "$ERR_DIR/s2_tamper.err" ] \
-    && echo "[WARN] Section 2 (Log Tampering): see errors/s2_tamper.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 2 (Log Tampering): see errors/s2_tamper.err" >> "$ERRORS_FILE"
+         log_warning "Section 2 (Log Tampering) had errors"; } \
     || rm -f "$ERR_DIR/s2_tamper.err"
+
+# Emit a finding if any zero-byte core log files are detected (sign of wiping)
+for logfile in /var/log/auth.log /var/log/syslog /var/log/secure; do
+    if [ -f "$logfile" ] && [ ! -s "$logfile" ]; then
+        log_finding "high" "Core log file is zero bytes — possible wiping" \
+            "file=$logfile"
+    fi
+done
 
 # SECTION 3 — AUTHENTICATION TIMELINE
 
+log_section "Authentication Timeline"
 echo "[*] Building authentication timeline..."
 
-python3 - << 'PYEOF' > "$OUTPUT_DIR/auth_timeline.txt" 2>"$ERR_DIR/s3_auth.err" || {
-    _note_err "auth_timeline python3" $?
-    journalctl -u ssh -u sshd --no-pager --output=short-precise 2>>"$ERR_DIR/s3_auth.err" \
-        | grep -E "Accepted|Failed|sudo|su\[" | tail -300 \
-        > "$OUTPUT_DIR/auth_timeline.txt" \
-        || _note_err "auth_timeline journald fallback" $?
-}
-import os, re, datetime, sys
+# The Python script writes its own output directly to auth_timeline.txt.
+# On Python failure we fall back to journalctl — both paths write to the same
+# destination, so we open the file once and redirect inside each branch.
+
+python3 - > "$OUTPUT_DIR/auth_timeline.txt" 2>"$ERR_DIR/s3_auth.err" << 'PYEOF'
+import os, re, sys
 
 auth_logs = ['/var/log/auth.log', '/var/log/secure']
 events = []
@@ -172,12 +186,38 @@ for ts, etype, details in events[-300:]:
     print(f"{ts:<18}  {etype:<16}  {detail_str}{flag}")
 PYEOF
 
+# If Python wrote nothing meaningful (empty or only the header), fall back to journalctl
+if [ ! -s "$OUTPUT_DIR/auth_timeline.txt" ] || \
+        ! grep -q "SSH_\|SUDO_\|SU_\|USER_\|PASSWD_" "$OUTPUT_DIR/auth_timeline.txt" 2>/dev/null; then
+    journalctl -u ssh -u sshd --no-pager --output=short-precise 2>>"$ERR_DIR/s3_auth.err" \
+        | grep -E "Accepted|Failed|sudo|su\[" | tail -300 \
+        >> "$OUTPUT_DIR/auth_timeline.txt" \
+        || _note_err "auth_timeline journald fallback" $?
+fi
+
 [ -s "$ERR_DIR/s3_auth.err" ] \
-    && echo "[WARN] Section 3 (Auth Timeline): see errors/s3_auth.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 3 (Auth Timeline): see errors/s3_auth.err" >> "$ERRORS_FILE"
+         log_warning "Section 3 (Auth Timeline) had errors"; } \
     || rm -f "$ERR_DIR/s3_auth.err"
+
+# Metrics from auth timeline
+ssh_fail_count=$(grep -c "\[ALERT\]" "$OUTPUT_DIR/auth_timeline.txt" 2>/dev/null || echo 0)
+user_created_count=$(grep -c "\[MONITOR\]" "$OUTPUT_DIR/auth_timeline.txt" 2>/dev/null || echo 0)
+log_metric "ssh_failures" "$ssh_fail_count" "count"
+log_metric "users_created" "$user_created_count" "count"
+
+if [ "$ssh_fail_count" -gt 20 ]; then
+    log_finding "high" "Elevated SSH failure count in auth logs" \
+        "count=$ssh_fail_count — possible brute-force or password spray"
+fi
+if [ "$user_created_count" -gt 0 ]; then
+    log_finding "medium" "User account creation events detected" \
+        "count=$user_created_count — verify legitimacy"
+fi
 
 # SECTION 4 — PRIVILEGE ESCALATION EVENTS
 
+log_section "Privilege Escalation Events"
 echo "[*] Detecting privilege escalation events..."
 
 {
@@ -228,11 +268,13 @@ echo "[*] Detecting privilege escalation events..."
 } > "$OUTPUT_DIR/privilege_escalation_events.txt"
 
 [ -s "$ERR_DIR/s4_privesc.err" ] \
-    && echo "[WARN] Section 4 (Privilege Escalation): see errors/s4_privesc.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 4 (Privilege Escalation): see errors/s4_privesc.err" >> "$ERRORS_FILE"
+         log_warning "Section 4 (Privilege Escalation) had errors"; } \
     || rm -f "$ERR_DIR/s4_privesc.err"
 
 # SECTION 5 — WEB SERVER LOG HUNTING
 
+log_section "Web Server Log Hunting"
 echo "[*] Hunting webshell and injection patterns in web logs..."
 
 WEB_LOGS=""
@@ -269,7 +311,35 @@ if [ -n "$WEB_LOGS" ]; then
         grep -ihE "${_pattern[$name]}" $WEB_LOGS 2>>"$ERR_DIR/s5_web.err" \
             | head -200 > "${_outfile[$name]}" \
             || _note_err "web grep $name" $?
+
+        hit_count=$(wc -l < "${_outfile[$name]}" 2>/dev/null || echo 0)
+        if [ "$hit_count" -gt 0 ]; then
+            log_metric "web_hits_${name}" "$hit_count" "count"
+        fi
     done
+
+    # Emit structured findings for any web attack patterns found
+    if [ -s "$OUTPUT_DIR/log4shell_attempts.txt" ]; then
+        log_finding "critical" "Log4Shell (CVE-2021-44228) exploitation attempts in web logs" \
+            "count=$(wc -l < "$OUTPUT_DIR/log4shell_attempts.txt") — review log4shell_attempts.txt"
+    fi
+    if [ -s "$OUTPUT_DIR/webshell_access.txt" ] && \
+            grep -qv '^\[\-\]' "$OUTPUT_DIR/webshell_access.txt" 2>/dev/null; then
+        log_finding "high" "Webshell access patterns in web logs" \
+            "count=$(wc -l < "$OUTPUT_DIR/webshell_access.txt") — review webshell_access.txt"
+    fi
+    if [ -s "$OUTPUT_DIR/sqli_patterns.txt" ]; then
+        log_finding "high" "SQL injection patterns in web logs" \
+            "count=$(wc -l < "$OUTPUT_DIR/sqli_patterns.txt") — review sqli_patterns.txt"
+    fi
+    if [ -s "$OUTPUT_DIR/ssrf_attempts.txt" ]; then
+        log_finding "high" "SSRF attempts targeting metadata endpoints in web logs" \
+            "count=$(wc -l < "$OUTPUT_DIR/ssrf_attempts.txt") — review ssrf_attempts.txt"
+    fi
+    if [ -s "$OUTPUT_DIR/path_traversal_patterns.txt" ]; then
+        log_finding "medium" "Path traversal attempts in web logs" \
+            "count=$(wc -l < "$OUTPUT_DIR/path_traversal_patterns.txt") — review path_traversal_patterns.txt"
+    fi
 
     # shellcheck disable=SC2086
     grep -iE \
@@ -294,15 +364,18 @@ if [ -n "$WEB_LOGS" ]; then
         > "$OUTPUT_DIR/web_requests_per_hour.txt" || _note_err "web requests/hour" $?
 
     [ -s "$ERR_DIR/s5_web.err" ] \
-        && echo "[WARN] Section 5 (Web Log Hunting): see errors/s5_web.err" >> "$ERRORS_FILE" \
+        && { echo "[WARN] Section 5 (Web Log Hunting): see errors/s5_web.err" >> "$ERRORS_FILE"
+             log_warning "Section 5 (Web Log Hunting) had errors"; } \
         || rm -f "$ERR_DIR/s5_web.err"
 else
     echo "[-] No web access logs found." > "$OUTPUT_DIR/webshell_access.txt"
     echo "[INFO] Section 5: No web logs present on this host." >> "$ERRORS_FILE"
+    log_info "Section 5: no web access logs found on this host"
 fi
 
 # SECTION 6 — KERNEL LOG ANALYSIS
 
+log_section "Kernel Log Analysis"
 echo "[*] Analysing kernel logs for security events..."
 
 {
@@ -336,11 +409,13 @@ echo "[*] Analysing kernel logs for security events..."
 } > "$OUTPUT_DIR/kernel_log_analysis.txt"
 
 [ -s "$ERR_DIR/s6_kernel.err" ] \
-    && echo "[WARN] Section 6 (Kernel Logs): see errors/s6_kernel.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 6 (Kernel Logs): see errors/s6_kernel.err" >> "$ERRORS_FILE"
+         log_warning "Section 6 (Kernel Logs) had errors"; } \
     || rm -f "$ERR_DIR/s6_kernel.err"
 
 # SECTION 7 — COMMAND EXECUTION AUDIT
 
+log_section "Shell History Forensics"
 echo "[*] Forensicating shell histories..."
 
 {
@@ -374,21 +449,39 @@ echo "[*] Forensicating shell histories..."
 } > "$OUTPUT_DIR/shell_history_forensics.txt"
 
 [ -s "$ERR_DIR/s7_history.err" ] \
-    && echo "[WARN] Section 7 (Shell History): see errors/s7_history.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 7 (Shell History): see errors/s7_history.err" >> "$ERRORS_FILE"
+         log_warning "Section 7 (Shell History) had errors"; } \
     || rm -f "$ERR_DIR/s7_history.err"
 
+# Flag if anyone disabled history recording
+if grep -q "HISTFILE\|HISTSIZE=0\|history -c" "$OUTPUT_DIR/shell_history_forensics.txt" 2>/dev/null; then
+    log_finding "medium" "Shell history suppression commands detected in user histories" \
+        "review shell_history_forensics.txt — attacker may have attempted anti-forensics"
+fi
+
+# Flag curl|sh / wget pipe-to-bash patterns
+if grep -qE 'curl.*\|.*sh|wget.*\|.*bash|bash <\(' \
+        "$OUTPUT_DIR/shell_history_forensics.txt" 2>/dev/null; then
+    log_finding "high" "Remote code execution pattern in shell history" \
+        "curl/wget pipe-to-shell detected — review shell_history_forensics.txt"
+fi
+
+# NOTE: log_info / log_warning etc. are now available here because log_init
+# was called at the top of this script, before any section executes.
 ausearch -m EXECVE --start today 2>"$ERR_DIR/s7_auditd.err" \
     | head -300 > "$OUTPUT_DIR/auditd_execve.txt" \
     || { _note_err "auditd execve" $?
          echo "(auditd not available)" > "$OUTPUT_DIR/auditd_execve.txt"; }
 
 [ -s "$ERR_DIR/s7_auditd.err" ] \
-    && echo "[INFO] Section 7 (auditd): see errors/s7_auditd.err" >> "$ERRORS_FILE" \
+    && { echo "[INFO] Section 7 (auditd): see errors/s7_auditd.err" >> "$ERRORS_FILE"
+         log_info "Section 7: auditd not available or produced errors"; } \
     || rm -f "$ERR_DIR/s7_auditd.err"
 
 # SECTION 8 — CRON / TIMER ANOMALY LOG HUNT
 
-log_info "Checking cron and timer execution logs..."
+log_section "Cron and Timer Anomaly Hunt"
+echo "[*] Checking cron and timer execution logs..."
 
 {
     echo "=== Cron execution logs ==="
@@ -414,16 +507,17 @@ log_info "Checking cron and timer execution logs..."
 } > "$OUTPUT_DIR/cron_timer_logs.txt"
 
 [ -s "$ERR_DIR/s8_cron.err" ] \
-    && echo "[WARN] Section 8 (Cron/Timer): see errors/s8_cron.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 8 (Cron/Timer): see errors/s8_cron.err" >> "$ERRORS_FILE"
+         log_warning "Section 8 (Cron/Timer) had errors"; } \
     || rm -f "$ERR_DIR/s8_cron.err"
 
 # SECTION 9 — CORRELATION ENGINE
 
+log_section "Multi-Source Event Correlation"
 echo "[*] Running multi-source event correlation..."
 
-python3 - << 'PYEOF' > "$OUTPUT_DIR/correlation_report.txt" 2>"$ERR_DIR/s9_correlate.err" \
-    || _note_err "correlation engine" $?
-import os, re, datetime, sys
+python3 - > "$OUTPUT_DIR/correlation_report.txt" 2>"$ERR_DIR/s9_correlate.err" << 'PYEOF'
+import os, re, sys
 
 auth_events = []
 auth_logs = ['/var/log/auth.log', '/var/log/secure']
@@ -479,12 +573,30 @@ print(f"Total auth events analysed: {len(auth_events)}")
 print(f"Unique source IPs: {len(set(e['ip'] for e in auth_events))}")
 PYEOF
 
+if [ $? -ne 0 ]; then
+    _note_err "correlation engine" $?
+fi
+
 [ -s "$ERR_DIR/s9_correlate.err" ] \
-    && echo "[WARN] Section 9 (Correlation): see errors/s9_correlate.err" >> "$ERRORS_FILE" \
+    && { echo "[WARN] Section 9 (Correlation): see errors/s9_correlate.err" >> "$ERRORS_FILE"
+         log_warning "Section 9 (Correlation Engine) had errors"; } \
     || rm -f "$ERR_DIR/s9_correlate.err"
+
+# Emit structured findings from correlation output
+if grep -q "^\[CRITICAL\] Password spray success" "$OUTPUT_DIR/correlation_report.txt" 2>/dev/null; then
+    spray_ips=$(grep -A5 "Password spray success" "$OUTPUT_DIR/correlation_report.txt" \
+        | grep -E '^\s+[0-9]+\.' | awk '{print $1}' | paste -sd,)
+    log_finding "critical" "Password spray followed by successful login" \
+        "source_ips=$spray_ips — same IP had both failed and successful auth events"
+fi
+if grep -q "^\[ALERT\] IPs with many successful logins" "$OUTPUT_DIR/correlation_report.txt" 2>/dev/null; then
+    log_finding "high" "IPs with unusually high successful login counts" \
+        "possible credential reuse or session pivoting — review correlation_report.txt"
+fi
 
 # SECTION 10 — SUMMARY
 
+log_section "Summary"
 echo "[*] Generating log analysis summary..."
 
 {
@@ -511,7 +623,7 @@ echo "[*] Generating log analysis summary..."
     [ -s "$OUTPUT_DIR/path_traversal_patterns.txt" ] && \
         echo "[MEDIUM] Path traversal attempts detected"
 
-    grep -q "CRITICAL\|HIGH" "$OUTPUT_DIR/correlation_report.txt" 2>/dev/null && \
+    grep -q "CRITICAL\|HIGH\|ALERT" "$OUTPUT_DIR/correlation_report.txt" 2>/dev/null && \
         echo "[HIGH] Correlation engine detected suspicious event patterns"
 
     echo
@@ -538,7 +650,6 @@ echo "[*] Generating log analysis summary..."
 cat "$OUTPUT_DIR/log_analysis_summary.txt"
 
 # ARCHIVE (contents only, no embedded absolute path)
-
 ARCHIVE="$OUTPUT_DIR/log_analysis_archive.tar.gz"
 tar -czf "$ARCHIVE" -C "$(dirname "$OUTPUT_DIR")" "$(basename "$OUTPUT_DIR")" 2>/dev/null || true
 

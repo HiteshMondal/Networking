@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 source "$PROJECT_ROOT/lib/init.sh"
+log_init "data_exfil_detect"
 
 set -eo pipefail
 
@@ -19,14 +20,20 @@ ERRORS_FILE="$OUTPUT_DIR/errors_summary.txt"
 
 _note_err() {
     local label="$1" ec="${2:-?}"
-    echo "[ERROR] '$label' failed (exit $ec)" >> "$ERRORS_FILE"
+    local msg="[ERROR] '$label' failed (exit $ec)"
+    echo "$msg" >> "$ERRORS_FILE"
+    log_error "$msg"
 }
 
 _section_err() {
     local sec="$1" errfile="$2"
-    [ -s "$errfile" ] \
-        && echo "[WARN] $sec: see errors/$(basename "$errfile")" >> "$ERRORS_FILE" \
-        || rm -f "$errfile"
+    if [ -s "$errfile" ]; then
+        local msg="[WARN] $sec: see errors/$(basename "$errfile")"
+        echo "$msg" >> "$ERRORS_FILE"
+        log_warning "$msg"
+    else
+        rm -f "$errfile"
+    fi
 }
 
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
@@ -36,6 +43,7 @@ whoami    >> "$OUTPUT_DIR/run_timestamp.txt"
 
 # SECTION 1 — DNS TUNNELLING DETECTION
 
+log_section "DNS Tunnelling Detection"
 echo "[*] Detecting DNS tunnelling indicators..."
 
 {
@@ -53,7 +61,8 @@ echo "[*] Detecting DNS tunnelling indicators..."
 
     echo
     echo "=== DNS query volume from /proc/net/udp ==="
-    dns_udp=$(grep -c " 0035 \| 0035:" /proc/net/udp 2>>"$ERR_DIR/s1_dns.err" || echo 0)
+    dns_udp=$(awk 'NR>1 { split($2,a,":"); if(a[2]=="0035") c++ } END{print c+0}' \
+        /proc/net/udp 2>>"$ERR_DIR/s1_dns.err" || echo 0)
     echo "UDP port 53 socket entries: $dns_udp"
 
     echo
@@ -62,7 +71,6 @@ echo "[*] Detecting DNS tunnelling indicators..."
         resolvectl statistics 2>>"$ERR_DIR/s1_dns.err" | head -20
     else
         echo "(resolvectl not available)"
-        echo "[INFO] Section 1: resolvectl not found" >> "$ERRORS_FILE"
     fi
 
     echo
@@ -79,12 +87,12 @@ echo "[*] Detecting DNS tunnelling indicators..."
     echo "=== High TXT record query rate ==="
     for logfile in /var/log/syslog /var/log/messages; do
         [ -r "$logfile" ] || continue
-        count=$(grep -c "TXT" "$logfile" 2>>"$ERR_DIR/s1_dns.err" || echo 0)
+        count=$(grep -c " TXT " "$logfile" 2>>"$ERR_DIR/s1_dns.err" || echo 0)
         [ "$count" -gt 50 ] && echo "[WARN] High TXT query count in $logfile: $count"
     done
 
     echo
-    echo "=== Processes making direct DNS connections ==="
+    echo "=== Processes making direct DNS connections (excluding resolvers) ==="
     ss -tunapH 2>>"$ERR_DIR/s1_dns.err" \
         | awk '$5 ~ /:53$/' \
         | grep -vE 'systemd-resolve|dnsmasq|named|unbound' | head -20 || true
@@ -101,8 +109,17 @@ echo "[*] Detecting DNS tunnelling indicators..."
 } > "$OUTPUT_DIR/dns_tunnelling.txt"
 _section_err "Section 1 DNS tunnelling" "$ERR_DIR/s1_dns.err"
 
+if grep -qE '\[SUSPICIOUS\]|\[WARN\].*High DNS|\[HIGH\]' \
+        "$OUTPUT_DIR/dns_tunnelling.txt" 2>/dev/null; then
+    log_finding "high" "DNS tunnelling indicators detected" \
+        "review dns_tunnelling.txt for long subdomains, high TXT rates, or tunnel tools"
+fi
+log_metric "dns_connection_count" "${dns_count:-0}" "count"
+log_metric "dns_udp_sockets"      "${dns_udp:-0}"   "count"
+
 # SECTION 2 — ICMP COVERT CHANNEL DETECTION
 
+log_section "ICMP Covert Channel Detection"
 echo "[*] Detecting ICMP covert channel indicators..."
 
 {
@@ -150,8 +167,16 @@ echo "[*] Detecting ICMP covert channel indicators..."
 } > "$OUTPUT_DIR/icmp_covert_channels.txt"
 _section_err "Section 2 ICMP" "$ERR_DIR/s2_icmp.err"
 
+if grep -q "\[HIGH\]" "$OUTPUT_DIR/icmp_covert_channels.txt" 2>/dev/null; then
+    log_finding "high" "ICMP tunnelling tool found on system" \
+        "review icmp_covert_channels.txt"
+fi
+raw_socket_count=$(awk 'NR>1' /proc/net/raw 2>/dev/null | wc -l || echo 0)
+log_metric "raw_socket_entries" "$raw_socket_count" "count"
+
 # SECTION 3 — HTTP/HTTPS C2 BEACONING DETECTION
 
+log_section "HTTP/HTTPS C2 Beaconing Detection"
 echo "[*] Detecting HTTP/HTTPS C2 beaconing patterns..."
 
 {
@@ -206,12 +231,17 @@ echo "[*] Detecting HTTP/HTTPS C2 beaconing patterns..."
 
     echo
     echo "=== Periodic connection timing analysis (10-second sample) ==="
-    python3 - << 'PYEOF' 2>>"$ERR_DIR/s3_http.err" || _note_err "beaconing timing sample" $?
+
+} > "$OUTPUT_DIR/http_c2_beaconing.txt"
+# run python3 OUTSIDE the brace-redirect block so that:
+# (a) _note_err writes to ERRORS_FILE (not to the redirected output file)
+# (b) the exit code of python3 is reliably captured in py_exit
+python3 - >> "$OUTPUT_DIR/http_c2_beaconing.txt" 2>"$ERR_DIR/s3_beacon.err" << 'PYEOF'
 import time, subprocess, collections, sys
 
 DURATION = 10
-interval = 1
-dest_times = collections.defaultdict(list)   # FIX: was referenced before assignment
+interval  = 1
+dest_times = collections.defaultdict(list)
 
 start = time.time()
 while time.time() - start < DURATION:
@@ -222,8 +252,7 @@ while time.time() - start < DURATION:
         for line in out.splitlines():
             parts = line.split()
             if len(parts) >= 5:
-                dest = parts[4]
-                dest_times[dest].append(time.time())
+                dest_times[parts[4]].append(time.time())
     except Exception as e:
         print(f"[ERROR] ss sampling failed: {e}", file=sys.stderr)
         break
@@ -238,12 +267,20 @@ for dest, times in dest_times.items():
 if not found:
     print("  (none detected)")
 PYEOF
+py_exit=$?
+[ "$py_exit" -ne 0 ] && _note_err "beaconing timing sample" "$py_exit"
+_section_err "Section 3 HTTP beaconing" "$ERR_DIR/s3_http.err"
+_section_err "Section 3 beaconing Python" "$ERR_DIR/s3_beacon.err"
 
-} > "$OUTPUT_DIR/http_c2_beaconing.txt"
-_section_err "Section 3 HTTP C2 beaconing" "$ERR_DIR/s3_http.err"
+if grep -q "\[HIGH\] Possible C2 process" "$OUTPUT_DIR/http_c2_beaconing.txt" 2>/dev/null; then
+    c2_count=$(grep -c "\[HIGH\] Possible C2 process" "$OUTPUT_DIR/http_c2_beaconing.txt")
+    log_finding "critical" "Known C2/RAT process names detected in running processes" \
+        "count=$c2_count — review http_c2_beaconing.txt immediately"
+fi
 
 # SECTION 4 — LARGE OUTBOUND TRANSFER DETECTION
 
+log_section "Large Outbound Transfer Detection"
 echo "[*] Detecting large outbound data transfers..."
 
 {
@@ -261,7 +298,7 @@ echo "[*] Detecting large outbound data transfers..."
 
     echo
     echo "=== Real-time bandwidth snapshot (2-second sample) ==="
-    python3 - << 'PYEOF' 2>>"$ERR_DIR/s4_transfer.err" || _note_err "bandwidth snapshot" $?
+    python3 - << 'PYEOF' 2>>"$ERR_DIR/s4_transfer.err" || true
 import time, sys
 
 def read_net_stats():
@@ -319,11 +356,32 @@ PYEOF
             && grep -iE "scp|sftp|rsync" "$logfile" 2>>"$ERR_DIR/s4_transfer.err" | tail -20
     done
 
+    echo
+    echo "=== Archives created in last 24 hours ==="
+    _ref=$(mktemp "$ERR_DIR/timeref_XXXXXX")
+    touch -d "24 hours ago" "$_ref" 2>/dev/null || touch "$_ref"
+    find /home /var/www /opt /tmp /var/tmp \
+        -type f \( -name "*.tar*" -o -name "*.zip" -o -name "*.7z" \) \
+        -newer "$_ref" 2>>"$ERR_DIR/s4_transfer.err" | head -20 || true
+    rm -f "$_ref"
+
 } > "$OUTPUT_DIR/large_outbound_transfers.txt"
 _section_err "Section 4 large outbound transfers" "$ERR_DIR/s4_transfer.err"
 
+if grep -q "\[HIGH TX\!\]" "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null; then
+    log_finding "high" "High outbound data transfer rate detected" \
+        "TX rate exceeded 500 KB/s during 2-second sample"
+fi
+staged_count=$(find /tmp /var/tmp /dev/shm -type f \
+    \( -name "*.tar*" -o -name "*.zip" -o -name "*.7z" \) 2>/dev/null | wc -l || echo 0)
+log_metric "staged_archives_in_tmp" "$staged_count" "count"
+[ "$staged_count" -gt 0 ] && log_finding "medium" \
+    "Archive files found in temporary directories" \
+    "count=$staged_count — possible staging for exfiltration"
+
 # SECTION 5 — STEGANOGRAPHY INDICATORS
 
+log_section "Steganography Indicators"
 echo "[*] Checking for steganography indicators..."
 
 {
@@ -333,8 +391,7 @@ echo "[*] Checking for steganography indicators..."
     echo
 
     echo "=== Steganography tools installed ==="
-    for tool in steghide outguess stegdetect stegseek openstego \
-                stepic stegpy exiftool; do
+    for tool in steghide outguess stegdetect stegseek openstego stepic stegpy exiftool; do
         command -v "$tool" >/dev/null 2>&1 \
             && echo "FOUND: $tool at $(command -v "$tool")"
     done
@@ -361,26 +418,39 @@ echo "[*] Checking for steganography indicators..."
 
     echo
     echo "=== Base64 blob files (encoded payload) ==="
+
+    # Pass the path via argv instead; python reads sys.argv[1] safely.
     find /tmp /var/tmp /dev/shm -type f -size +10k 2>>"$ERR_DIR/s5_steg.err" \
     | while IFS= read -r f; do
-        python3 -c "
+        python3 - "$f" 2>>"$ERR_DIR/s5_steg.err" << 'PYEOF'
 import sys
 try:
-    with open('$f','rb') as fp: data = fp.read(4096)
+    with open(sys.argv[1], 'rb') as fp:
+        data = fp.read(4096)
     text = data.decode('ascii')
-    b64_chars = sum(1 for c in text if c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
-    ratio = b64_chars / max(len(text), 1)
-    sys.exit(0 if ratio > 0.9 else 1)
-except:
-    sys.exit(1)" 2>>"$ERR_DIR/s5_steg.err" \
-            && echo "POSSIBLE BASE64 BLOB: $f"
+    b64_chars = sum(
+        1 for c in text
+        if c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+    )
+    if b64_chars / max(len(text), 1) > 0.9:
+        print(f"POSSIBLE BASE64 BLOB: {sys.argv[1]}")
+except Exception:
+    sys.exit(1)
+PYEOF
     done | head -10
 
 } > "$OUTPUT_DIR/steganography_indicators.txt"
 _section_err "Section 5 steganography" "$ERR_DIR/s5_steg.err"
 
+steg_tools=$(grep -c "^FOUND:" "$OUTPUT_DIR/steganography_indicators.txt" 2>/dev/null || echo 0)
+log_metric "steganography_tools_found" "$steg_tools" "count"
+[ "$steg_tools" -gt 0 ] && log_finding "medium" \
+    "Steganography tools found on system" \
+    "count=$steg_tools — review steganography_indicators.txt"
+
 # SECTION 6 — DLP: SENSITIVE DATA STAGED FOR EXFILTRATION
 
+log_section "DLP Sensitive Data Staging Check"
 echo "[*] Running DLP checks for staged sensitive data..."
 
 {
@@ -446,15 +516,30 @@ echo "[*] Running DLP checks for staged sensitive data..."
 
     echo
     echo "=== Recently created archives (last 24h) ==="
+
+    _ref=$(mktemp "$ERR_DIR/timeref_XXXXXX")
+    touch -d "24 hours ago" "$_ref" 2>/dev/null || touch "$_ref"
     find /home /var/www /opt /tmp /var/tmp \
         -type f \( -name "*.tar*" -o -name "*.zip" -o -name "*.7z" \) \
-        -newer /tmp 2>>"$ERR_DIR/s6_dlp.err" | head -20 || true
+        -newer "$_ref" 2>>"$ERR_DIR/s6_dlp.err" | head -20 || true
+    rm -f "$_ref"
 
 } > "$OUTPUT_DIR/dlp_staging_check.txt"
 _section_err "Section 6 DLP" "$ERR_DIR/s6_dlp.err"
 
+for _pat in "SENSITIVE:" "POSSIBLE_PAN:" "POSSIBLE SHADOW COPY:"; do
+    _cnt=$(grep -c "$_pat" "$OUTPUT_DIR/dlp_staging_check.txt" 2>/dev/null || echo 0)
+    if [ "$_cnt" -gt 0 ]; then
+        _lbl=$(printf '%s' "$_pat" | tr -d ':' | tr '[:upper:] ' '[:lower:]_')
+        log_finding "high" "DLP: ${_pat} matches in staging directories" \
+            "count=$_cnt — review dlp_staging_check.txt"
+        log_metric "dlp_${_lbl}_hits" "$_cnt" "count"
+    fi
+done
+
 # SECTION 7 — PROTOCOL ANOMALY DETECTION
 
+log_section "Protocol Anomaly Detection"
 echo "[*] Detecting protocol-level anomalies..."
 
 {
@@ -482,11 +567,12 @@ echo "[*] Detecting protocol-level anomalies..."
     echo "=== I2P / anonymous network indicators ==="
     pgrep -al "i2p\|i2pd" 2>>"$ERR_DIR/s7_proto.err" || true
     ss -tnpH 2>>"$ERR_DIR/s7_proto.err" \
-        | grep ':7654\|:4444\|:7656\|:7657' | head -5 || true
+        | grep -E ':7654|:4444|:7656|:7657' | head -5 || true
 
     echo
     echo "=== Proxychains / SOCKS proxy usage ==="
-    find /home /root /tmp -name "proxychains*.conf" -type f -ls 2>>"$ERR_DIR/s7_proto.err" | head -5
+    find /home /root /tmp -name "proxychains*.conf" -type f -ls \
+        2>>"$ERR_DIR/s7_proto.err" | head -5
     pgrep -al "proxychains\|proxytunnel\|3proxy" 2>>"$ERR_DIR/s7_proto.err" || true
 
     echo
@@ -505,9 +591,27 @@ echo "[*] Detecting protocol-level anomalies..."
 } > "$OUTPUT_DIR/protocol_anomalies.txt"
 _section_err "Section 7 protocol anomalies" "$ERR_DIR/s7_proto.err"
 
+if grep -q "\[HIGH\] Tor process is running" "$OUTPUT_DIR/protocol_anomalies.txt" 2>/dev/null; then
+    log_finding "high" "Tor anonymisation network is active" \
+        "tor process running — outbound traffic may be anonymised"
+fi
+
 # SECTION 8 — EXFILTRATION SUMMARY
 
+log_section "Exfiltration Detection Summary"
 echo "[*] Generating exfiltration detection summary..."
+
+# Tally findings independently — avoids the original compound-brace bug where
+# only the last grep in a { } block determined whether the block succeeded.
+_critical=0; _high=0
+grep -q "\[HIGH\] Possible C2 process"   "$OUTPUT_DIR/http_c2_beaconing.txt"    2>/dev/null && _critical=$((_critical+1))
+grep -q "\[HIGH\] Tor process"           "$OUTPUT_DIR/protocol_anomalies.txt"   2>/dev/null && _high=$((_high+1))
+grep -q "\[HIGH TX\!\]"                  "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null && _high=$((_high+1))
+grep -qE '\[HIGH\].*DNS tunnelling|\[SUSPICIOUS\]' \
+                                          "$OUTPUT_DIR/dns_tunnelling.txt"       2>/dev/null && _high=$((_high+1))
+
+log_metric "critical_findings" "$_critical" "count"
+log_metric "high_findings"     "$_high"     "count"
 
 {
     echo "========================================================"
@@ -519,27 +623,27 @@ echo "[*] Generating exfiltration detection summary..."
 
     echo "--- High-Priority Findings ---"
 
-    grep -q "DNS tunnelling tool found\|SUSPICIOUS.*Long subdomain" \
+    grep -qE '\[HIGH\].*DNS tunnelling|\[SUSPICIOUS\].*Long subdomain' \
         "$OUTPUT_DIR/dns_tunnelling.txt" 2>/dev/null \
         && echo "[HIGH] DNS tunnelling indicators detected"
 
-    grep -qiE "icmp.*tool|raw socket" \
+    grep -qiE "\[HIGH\].*ICMP|raw socket" \
         "$OUTPUT_DIR/icmp_covert_channels.txt" 2>/dev/null \
         && echo "[MEDIUM] ICMP covert channel indicators detected"
 
-    grep -q "Possible C2 process" \
+    grep -q "\[HIGH\] Possible C2 process" \
         "$OUTPUT_DIR/http_c2_beaconing.txt" 2>/dev/null \
         && echo "[CRITICAL] Known C2/RAT process names detected"
 
-    grep -q "HIGH TX" "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null \
+    grep -q "\[HIGH TX\!\]" "$OUTPUT_DIR/large_outbound_transfers.txt" 2>/dev/null \
         && echo "[HIGH] High outbound data transfer rate detected"
 
-    {
-        grep -q "POSSIBLE BASE64 BLOB\|SENSITIVE\|POSSIBLE_PAN\|POSSIBLE SHADOW COPY" \
-            "$OUTPUT_DIR/dlp_staging_check.txt" 2>/dev/null
-        grep -q "POSSIBLE BASE64 BLOB" \
-            "$OUTPUT_DIR/steganography_indicators.txt" 2>/dev/null
-    } && echo "[HIGH] Sensitive data staged in writable directories"
+    _dlp=false
+    grep -qE "SENSITIVE|POSSIBLE_PAN|POSSIBLE SHADOW COPY" \
+        "$OUTPUT_DIR/dlp_staging_check.txt"        2>/dev/null && _dlp=true
+    grep -q "POSSIBLE BASE64 BLOB" \
+        "$OUTPUT_DIR/steganography_indicators.txt"  2>/dev/null && _dlp=true
+    $_dlp && echo "[HIGH] Sensitive data found in writable/staging directories"
 
     grep -q "Tor process is running" \
         "$OUTPUT_DIR/protocol_anomalies.txt" 2>/dev/null \
@@ -548,6 +652,11 @@ echo "[*] Generating exfiltration detection summary..."
     grep -qE "FOUND.*steghide|FOUND.*outguess|FOUND.*stegseek" \
         "$OUTPUT_DIR/steganography_indicators.txt" 2>/dev/null \
         && echo "[MEDIUM] Steganography tools found on system"
+
+    echo
+    echo "--- Metrics ---"
+    echo "  Critical findings : $_critical"
+    echo "  High findings     : $_high"
 
     echo
     echo "--- Script Errors ---"
@@ -564,8 +673,6 @@ echo "[*] Generating exfiltration detection summary..."
 } > "$OUTPUT_DIR/exfil_summary.txt"
 
 cat "$OUTPUT_DIR/exfil_summary.txt"
-
-# ARCHIVE (contents only, no embedded absolute path)
 
 ARCHIVE="$OUTPUT_DIR/exfil_detect_archive.tar.gz"
 tar -czf "$ARCHIVE" -C "$(dirname "$OUTPUT_DIR")" "$(basename "$OUTPUT_DIR")" 2>/dev/null || true

@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 source "$PROJECT_ROOT/lib/init.sh"
+log_init "cloud_exposure_audit"
 
 set -eo pipefail
 
@@ -19,14 +20,22 @@ ERRORS_FILE="$OUTPUT_DIR/errors_summary.txt"
 
 _note_err() {
     local label="$1" ec="${2:-?}"
-    echo "[ERROR] '$label' failed (exit $ec)" >> "$ERRORS_FILE"
+    local msg="[ERROR] '$label' failed (exit $ec)"
+    echo "$msg" >> "$ERRORS_FILE"
+    log_error "$msg"
 }
 
+# Write a WARN entry to ERRORS_FILE if the error file has content; else remove it.
+# Also forwards any warnings to the structured log.
 _section_err() {
     local sec="$1" errfile="$2"
-    [ -s "$errfile" ] \
-        && echo "[WARN] $sec: see errors/$(basename "$errfile")" >> "$ERRORS_FILE" \
-        || rm -f "$errfile"
+    if [ -s "$errfile" ]; then
+        local msg="[WARN] $sec: see errors/$(basename "$errfile")"
+        echo "$msg" >> "$ERRORS_FILE"
+        log_warning "$msg"
+    else
+        rm -f "$errfile"
+    fi
 }
 
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
@@ -36,6 +45,7 @@ whoami    >> "$OUTPUT_DIR/run_timestamp.txt"
 
 # SECTION 1 — CLOUD PLATFORM DETECTION
 
+log_section "Cloud Platform Detection"
 echo "[*] Detecting cloud platform..."
 
 detect_cloud_platform() {
@@ -63,9 +73,11 @@ detect_cloud_platform() {
 CLOUD_PLATFORM=$(detect_cloud_platform)
 echo "  Platform detected: $CLOUD_PLATFORM"
 echo "PLATFORM=$CLOUD_PLATFORM" > "$OUTPUT_DIR/platform_detected.txt"
+log_metric "cloud_platform_detected" "$CLOUD_PLATFORM" "label"
 
 # SECTION 2 — IMDS AUDIT
 
+log_section "IMDS Security Audit"
 echo "[*] Auditing Instance Metadata Service (IMDS)..."
 
 {
@@ -198,8 +210,23 @@ except Exception as e:
 } > "$OUTPUT_DIR/imds_audit.txt" 2>"$ERR_DIR/s2_imds.err" || true
 _section_err "Section 2 IMDS" "$ERR_DIR/s2_imds.err"
 
+# Emit structured findings for IMDS results
+if grep -q "\[CRITICAL\] IMDSv1" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null; then
+    log_finding "critical" "IMDSv1 accessible without authentication" \
+        "platform=$CLOUD_PLATFORM — IAM credentials may be exposed via unauthenticated IMDS"
+fi
+if grep -q "\[HIGH\] GCP service account access token" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null; then
+    log_finding "high" "GCP service account token exposed via metadata" \
+        "Token available at metadata.google.internal without additional auth"
+fi
+if grep -q "\[HIGH\] Azure managed identity token" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null; then
+    log_finding "high" "Azure managed identity token exposed" \
+        "Token available at 169.254.169.254 IMDS endpoint"
+fi
+
 # SECTION 3 — CLOUD CREDENTIAL EXPOSURE AUDIT
 
+log_section "Cloud Credential Exposure Audit"
 echo "[*] Auditing cloud credential files and environment variables..."
 
 {
@@ -273,8 +300,24 @@ except Exception as e:
 } > "$OUTPUT_DIR/cloud_credential_exposure.txt" 2>"$ERR_DIR/s3_creds.err" || true
 _section_err "Section 3 credentials" "$ERR_DIR/s3_creds.err"
 
+# Count credential files found and emit metrics
+cred_count=$(grep -c "^FOUND:" "$OUTPUT_DIR/cloud_credential_exposure.txt" 2>/dev/null || echo 0)
+log_metric "cloud_credential_files_found" "$cred_count" "count"
+if [ "$cred_count" -gt 0 ]; then
+    log_finding "high" "Cloud credential files found on disk" \
+        "count=$cred_count — review cloud_credential_exposure.txt"
+fi
+
+gcp_key_count=$(grep -c "\[HIGH\] GCP service account key found" \
+    "$OUTPUT_DIR/cloud_credential_exposure.txt" 2>/dev/null || echo 0)
+if [ "$gcp_key_count" -gt 0 ]; then
+    log_finding "high" "GCP service account JSON key files on disk" \
+        "count=$gcp_key_count — private keys may be exposed"
+fi
+
 # SECTION 4 — CONTAINER SECURITY & ESCAPE INDICATORS
 
+log_section "Container Security Posture"
 echo "[*] Checking container security posture and escape indicators..."
 
 {
@@ -293,7 +336,7 @@ echo "[*] Checking container security posture and escape indicators..."
     echo
     echo "=== Docker socket exposure (critical escape vector) ==="
     if [ -S /var/run/docker.sock ]; then
-        echo "[CRITICAL] /var/run/docker.sock is accessible!"
+        echo "[CRITICAL] Docker socket exposed: /var/run/docker.sock"
         ls -la /var/run/docker.sock
         echo "  This allows full host compromise from within the container"
         if command -v curl >/dev/null 2>&1; then
@@ -370,8 +413,29 @@ except Exception: pass" 2>/dev/null || true
 } > "$OUTPUT_DIR/container_security.txt" 2>"$ERR_DIR/s4_container.err" || true
 _section_err "Section 4 container" "$ERR_DIR/s4_container.err"
 
+# Structured findings for container section
+if grep -q "\[CRITICAL\] Docker socket exposed" "$OUTPUT_DIR/container_security.txt" 2>/dev/null; then
+    log_finding "critical" "Docker socket exposed inside container" \
+        "/var/run/docker.sock accessible — full host escape possible"
+fi
+if grep -q "\[CRITICAL\] Full capability bounding set" "$OUTPUT_DIR/container_security.txt" 2>/dev/null; then
+    log_finding "critical" "Container running in privileged mode" \
+        "CapBnd=0000003fffffffff — all capabilities available to container"
+fi
+if grep -q "\[WARN\].*namespace: SHARED" "$OUTPUT_DIR/container_security.txt" 2>/dev/null; then
+    shared_ns=$(grep "\[WARN\].*namespace: SHARED" "$OUTPUT_DIR/container_security.txt" \
+        | awk '{print $2}' | paste -sd,)
+    log_finding "high" "Container shares kernel namespace(s) with host" \
+        "shared_namespaces=$shared_ns"
+fi
+if grep -q "\[HIGH\] /proc/1/root is accessible" "$OUTPUT_DIR/container_security.txt" 2>/dev/null; then
+    log_finding "high" "Host root filesystem readable via /proc/1/root" \
+        "PID 1 namespace escape path is open"
+fi
+
 # SECTION 5 — KUBERNETES SECURITY AUDIT
 
+log_section "Kubernetes Security Audit"
 echo "[*] Auditing Kubernetes security posture..."
 
 {
@@ -456,8 +520,14 @@ except Exception as e:
 } > "$OUTPUT_DIR/kubernetes_security.txt" 2>"$ERR_DIR/s5_k8s.err" || true
 _section_err "Section 5 Kubernetes" "$ERR_DIR/s5_k8s.err"
 
+if grep -q "\[INFO\] Running inside Kubernetes" "$OUTPUT_DIR/kubernetes_security.txt" 2>/dev/null; then
+    log_finding "high" "Kubernetes service account token present in pod" \
+        "Review RBAC permissions — token may grant cluster-wide access"
+fi
+
 # SECTION 6 — CLOUD PERSISTENCE MECHANISMS
 
+log_section "Cloud Persistence Mechanisms"
 echo "[*] Checking cloud-specific persistence mechanisms..."
 
 {
@@ -506,6 +576,7 @@ _section_err "Section 6 cloud persistence" "$ERR_DIR/s6_persist.err"
 
 # SECTION 7 — OBJECT STORAGE MISCONFIGURATION PROBE
 
+log_section "Object Storage Audit"
 echo "[*] Probing object storage accessibility..."
 
 {
@@ -547,7 +618,22 @@ echo "[*] Probing object storage accessibility..."
 _section_err "Section 7 object storage" "$ERR_DIR/s7_storage.err"
 
 # SECTION 8 — SUMMARY REPORT
+
+log_section "Summary Report"
 echo "[*] Generating cloud exposure summary..."
+
+# Count total findings across all finding levels
+critical_count=$(grep -c "^\[CRITICAL\]" \
+    "$OUTPUT_DIR/imds_audit.txt" \
+    "$OUTPUT_DIR/container_security.txt" 2>/dev/null | awk -F: '{sum+=$2} END{print sum+0}')
+high_count=$(grep -c "^\[HIGH\]" \
+    "$OUTPUT_DIR/cloud_credential_exposure.txt" \
+    "$OUTPUT_DIR/container_security.txt" \
+    "$OUTPUT_DIR/kubernetes_security.txt" \
+    "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null | awk -F: '{sum+=$2} END{print sum+0}')
+
+log_metric "critical_findings" "$critical_count" "count"
+log_metric "high_findings"     "$high_count"     "count"
 
 {
     echo "========================================================"
@@ -560,29 +646,37 @@ echo "[*] Generating cloud exposure summary..."
 
     echo "--- Critical Findings ---"
 
-    grep -q "CRITICAL.*IMDSv1" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null \
+    grep -q "\[CRITICAL\] IMDSv1" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null \
         && echo "[CRITICAL] IMDSv1 accessible without authentication (IAM credentials at risk)"
 
-    grep -q "CRITICAL.*docker.sock" "$OUTPUT_DIR/container_security.txt" 2>/dev/null \
+    grep -q "\[CRITICAL\] Docker socket exposed" "$OUTPUT_DIR/container_security.txt" 2>/dev/null \
         && echo "[CRITICAL] Docker socket exposed inside container (host escape possible)"
 
-    grep -q "CRITICAL.*privileged container" "$OUTPUT_DIR/container_security.txt" 2>/dev/null \
+    grep -q "\[CRITICAL\] Full capability bounding set" "$OUTPUT_DIR/container_security.txt" 2>/dev/null \
         && echo "[CRITICAL] Container running with full capabilities (privileged mode)"
 
-    grep -q "SHARED with host" "$OUTPUT_DIR/container_security.txt" 2>/dev/null \
+    grep -q "\[WARN\].*namespace: SHARED" "$OUTPUT_DIR/container_security.txt" 2>/dev/null \
         && echo "[HIGH] Container shares one or more namespaces with the host"
 
-    grep -q "Running inside Kubernetes" "$OUTPUT_DIR/kubernetes_security.txt" 2>/dev/null \
+    grep -q "\[INFO\] Running inside Kubernetes" "$OUTPUT_DIR/kubernetes_security.txt" 2>/dev/null \
         && echo "[HIGH] Kubernetes service account token present — check RBAC permissions"
 
-    grep -q "GCP service account access token available" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null \
+    grep -q "\[HIGH\] GCP service account access token" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null \
         && echo "[HIGH] GCP service account token accessible via metadata service"
 
-    grep -q "Azure managed identity token available" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null \
+    grep -q "\[HIGH\] Azure managed identity token" "$OUTPUT_DIR/imds_audit.txt" 2>/dev/null \
         && echo "[HIGH] Azure managed identity token accessible"
 
-    grep -q "GCP service account key found" "$OUTPUT_DIR/cloud_credential_exposure.txt" 2>/dev/null \
+    grep -q "\[HIGH\] GCP service account key found" "$OUTPUT_DIR/cloud_credential_exposure.txt" 2>/dev/null \
         && echo "[HIGH] GCP service account JSON key file found on disk"
+
+    grep -q "\[HIGH\] /proc/1/root is accessible" "$OUTPUT_DIR/container_security.txt" 2>/dev/null \
+        && echo "[HIGH] Host root filesystem accessible via /proc/1/root"
+
+    echo
+    echo "--- Metrics ---"
+    echo "  Critical findings : $critical_count"
+    echo "  High findings     : $high_count"
 
     echo
     echo "--- Script Errors ---"

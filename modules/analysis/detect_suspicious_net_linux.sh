@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 source "$PROJECT_ROOT/lib/init.sh"
+log_init "detect_suspicious_net"
 
 set -eo pipefail
 
@@ -19,14 +20,20 @@ ERRORS_FILE="$OUTPUT_DIR/errors_summary.txt"
 
 _note_err() {
     local label="$1" ec="${2:-?}"
-    echo "[ERROR] '$label' failed (exit $ec)" >> "$ERRORS_FILE"
+    local msg="[ERROR] '$label' failed (exit $ec)"
+    echo "$msg" >> "$ERRORS_FILE"
+    log_error "$msg"
 }
 
 _section_err() {
     local sec="$1" errfile="$2"
-    [ -s "$errfile" ] \
-        && echo "[WARN] $sec: see errors/$(basename "$errfile")" >> "$ERRORS_FILE" \
-        || rm -f "$errfile"
+    if [ -s "$errfile" ]; then
+        local msg="[WARN] $sec: see errors/$(basename "$errfile")"
+        echo "$msg" >> "$ERRORS_FILE"
+        log_warning "$msg"
+    else
+        rm -f "$errfile"
+    fi
 }
 
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
@@ -35,6 +42,8 @@ uname -a  >> "$OUTPUT_DIR/run_timestamp.txt"
 whoami    >> "$OUTPUT_DIR/run_timestamp.txt"
 
 # SECTION 1 — PROCESS & NETWORK OVERVIEW
+
+log_section "Process and Network Overview"
 echo "[*] Collecting process and network overview..."
 
 ps aux --sort=-%mem > "$OUTPUT_DIR/ps_aux.txt" 2>"$ERR_DIR/s1_ps.err" \
@@ -51,15 +60,22 @@ ss -tunapH 2>"$ERR_DIR/s1_conns.err" \
     > "$OUTPUT_DIR/ss_connections.txt" || _note_err "ss connections" $?
 _section_err "Section 1 connections" "$ERR_DIR/s1_conns.err"
 
+# Extract remote addresses; strip port suffix after the last colon to handle
+# both IPv4 (1.2.3.4:port) and IPv6 ([::1]:port) forms correctly.
 ss -tunapH 2>"$ERR_DIR/s1_ips.err" \
     | awk '{print $5}' \
-    | sed -E 's/:[0-9]+$//' \
+    | sed -E 's/(\]?):[0-9]+$/\1/' \
+    | sed -E 's/^\[([^]]+)\]$/\1/' \
     | sed '/^$/d' \
     | sort -u \
     > "$OUTPUT_DIR/remote_ips.txt" || _note_err "remote ips" $?
 _section_err "Section 1 remote IPs" "$ERR_DIR/s1_ips.err"
 
+log_metric "remote_ip_count" "$(wc -l < "$OUTPUT_DIR/remote_ips.txt" 2>/dev/null || echo 0)" "count"
+
 # SECTION 2 — PUBLIC IP ENRICHMENT
+
+log_section "Public IP Enrichment"
 echo "[*] Enriching public IPs..."
 
 if [ -s "$OUTPUT_DIR/remote_ips.txt" ]; then
@@ -70,20 +86,29 @@ if [ -s "$OUTPUT_DIR/remote_ips.txt" ]; then
         || cp "$OUTPUT_DIR/remote_ips.txt" "$OUTPUT_DIR/remote_ips_public.txt"
     _section_err "Section 2 IP filter" "$ERR_DIR/s2_filter.err"
 
+    public_count=$(wc -l < "$OUTPUT_DIR/remote_ips_public.txt" 2>/dev/null || echo 0)
+    log_metric "public_ip_count" "$public_count" "count"
+
     if [ -s "$OUTPUT_DIR/remote_ips_public.txt" ]; then
-        xargs -P5 -I{} sh -c '
-            SAFE_IP=$(echo "{}" | tr ":" "_" | tr "/" "_")
-            OUTFILE="'"$OUTPUT_DIR"'/whois_${SAFE_IP}.txt"
-            echo "=== {} ===" > "$OUTFILE"
-            timeout 10 whois {} >> "$OUTFILE" 2>/dev/null || true
-            timeout 5  nslookup {} >> "$OUTFILE" 2>/dev/null || true
-            curl -m 8 -sS "https://ipinfo.io/{}/json" >> "$OUTFILE" 2>/dev/null || true
-        ' < "$OUTPUT_DIR/remote_ips_public.txt" 2>"$ERR_DIR/s2_enrich.err" || true
+        # Pass the output directory as an env var to avoid unsafe $(...) interpolation
+        # inside the sh -c body.  Each IP is passed via stdin and referenced as $ip
+        # — no unquoted variable expansion from the outer shell.
+        OUT_DIR="$OUTPUT_DIR" xargs -P5 -I{} sh -c '
+            ip="$1"
+            safe_ip=$(printf "%s" "$ip" | tr ":/" "__")
+            outfile="${OUT_DIR}/whois_${safe_ip}.txt"
+            printf "=== %s ===\n" "$ip" > "$outfile"
+            timeout 10 whois "$ip" >> "$outfile" 2>/dev/null || true
+            timeout 5  nslookup "$ip" >> "$outfile" 2>/dev/null || true
+            curl -m 8 -sS "https://ipinfo.io/${ip}/json" >> "$outfile" 2>/dev/null || true
+        ' -- {} < "$OUTPUT_DIR/remote_ips_public.txt" 2>"$ERR_DIR/s2_enrich.err" || true
         _section_err "Section 2 enrichment" "$ERR_DIR/s2_enrich.err"
     fi
 fi
 
 # SECTION 3 — LOW-LEVEL NETWORK STATE
+
+log_section "Low-Level Network State"
 echo "[*] Collecting low-level network state..."
 
 lsof -i -P -n    > "$OUTPUT_DIR/lsof_i.txt"       2>"$ERR_DIR/s3_lsof.err"  || _note_err "lsof" $?
@@ -104,6 +129,8 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 # SECTION 4 — INTERESTING CONNECTIONS & PID EXTRACTION
+
+log_section "Interesting Connections and PID Extraction"
 echo "[*] Extracting interesting connections..."
 
 awk '/LISTEN|ESTAB|ESTABLISHED/' "$OUTPUT_DIR/ss_tunap_raw.txt" \
@@ -114,16 +141,27 @@ awk '{if($7 ~ /^[0-9]+,/) print $0}' "$OUTPUT_DIR/ss_tunap_raw.txt" \
     > "$OUTPUT_DIR/connections_with_pid.txt" 2>"$ERR_DIR/s4_pid.err" || true
 _section_err "Section 4 with-pid" "$ERR_DIR/s4_pid.err"
 
+# Extract the numeric PID that precedes the comma-separated program name.
+# The ss users: field has the form:  users:(("prog",pid=NNN,fd=M))
+# This pattern is more reliable than stripping all alpha chars from $7.
 awk '{print $7}' "$OUTPUT_DIR/connections_with_pid.txt" \
-    | sed 's/,.*$//' \
-    | sed -E 's/[a-zA-Z\/]//g' \
-    | tr -d '[]' \
+    | grep -oE 'pid=[0-9]+' \
+    | grep -oE '[0-9]+' \
     | sort -u \
     > "$OUTPUT_DIR/pids_with_network.txt" 2>"$ERR_DIR/s4_pids.err" || true
 _section_err "Section 4 pids" "$ERR_DIR/s4_pids.err"
 
+pid_count=$(wc -l < "$OUTPUT_DIR/pids_with_network.txt" 2>/dev/null || echo 0)
+log_metric "pids_with_network" "$pid_count" "count"
+
 # SECTION 5 — PER-PID FORENSICS
+
+log_section "Per-PID Forensics"
 echo "[*] Running per-PID forensics..."
+
+# Locations that are commonly associated with malware / living-off-the-land drops.
+# A process executable in one of these paths warrants a HIGH finding.
+_suspicious_path_re='^(/tmp|/dev/shm|/var/tmp|/run/|/proc/self)'
 
 if [ -s "$OUTPUT_DIR/pids_with_network.txt" ]; then
     while IFS= read -r pid; do
@@ -136,12 +174,26 @@ if [ -s "$OUTPUT_DIR/pids_with_network.txt" ]; then
         ps -p "$pid" -o pid,ppid,uid,gid,etimes,cmd \
             > "$OUTPUT_DIR/pid_${pid}_ps.txt"   2>>"$ERR_DIR/s5_pid${pid}.err" || true
 
-        exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null)
+        exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)
         if [ -n "$exe" ] && [ -f "$exe" ]; then
             {
                 md5sum    "$exe" 2>/dev/null
                 sha256sum "$exe" 2>/dev/null
             } > "$OUTPUT_DIR/pid_${pid}_exe_hash.txt" || true
+
+            # Flag processes running from suspicious filesystem locations
+            if echo "$exe" | grep -qE "$_suspicious_path_re"; then
+                log_finding "high" \
+                    "Network-active process running from suspicious path" \
+                    "pid=$pid exe=$exe"
+            fi
+
+            # Flag deleted executables still running (fileless / replaced binary)
+            if [ ! -e "$exe" ] || grep -q '(deleted)' "/proc/$pid/exe" 2>/dev/null; then
+                log_finding "high" \
+                    "Network-active process executable is deleted/replaced" \
+                    "pid=$pid exe=$exe"
+            fi
         fi
 
         _section_err "Section 5 PID $pid" "$ERR_DIR/s5_pid${pid}.err"
@@ -149,6 +201,8 @@ if [ -s "$OUTPUT_DIR/pids_with_network.txt" ]; then
 fi
 
 # SECTION 6 — PERSISTENCE CHECKS
+
+log_section "Persistence Checks"
 echo "[*] Checking persistence mechanisms..."
 
 {
@@ -157,7 +211,6 @@ echo "[*] Checking persistence mechanisms..."
 
     echo
     echo "=== Root crontab ==="
-    # Use -u root to avoid interactive prompt when already running as root
     crontab -u root -l 2>>"$ERR_DIR/s6_cron.err" || echo "(no root crontab or insufficient privilege)"
 
     echo
@@ -187,13 +240,30 @@ find /etc/systemd/system /lib/systemd/system \
     > "$OUTPUT_DIR/systemd_execstarts.txt" || true
 _section_err "Section 6 ExecStart" "$ERR_DIR/s6_execstart.err"
 
+# Flag ExecStart lines pointing to temp/shm paths
+if grep -qE 'ExecStart=(/tmp|/dev/shm|/var/tmp)' \
+        "$OUTPUT_DIR/systemd_execstarts.txt" 2>/dev/null; then
+    log_finding "high" \
+        "Systemd unit ExecStart references temporary/volatile path" \
+        "review output/suspicious_net/systemd_execstarts.txt"
+fi
+
 # SECTION 7 — FILESYSTEM & PRIVILEGE ABUSE
+
+log_section "Filesystem and Privilege Abuse Indicators"
 echo "[*] Checking filesystem and privilege abuse indicators..."
 
 timeout 300 find /home /tmp /var/tmp /dev/shm \
     -type f -mtime -7 -ls 2>"$ERR_DIR/s7_recent.err" \
     > "$OUTPUT_DIR/recent_tmp_files.txt" || _note_err "recent tmp files" $?
 _section_err "Section 7 recent files" "$ERR_DIR/s7_recent.err"
+
+recent_count=$(wc -l < "$OUTPUT_DIR/recent_tmp_files.txt" 2>/dev/null || echo 0)
+log_metric "recent_tmp_files" "$recent_count" "count"
+if [ "$recent_count" -gt 50 ]; then
+    log_finding "medium" "Elevated count of recently modified files in temp directories" \
+        "count=$recent_count — review recent_tmp_files.txt"
+fi
 
 timeout 600 find / \
     -path /proc -prune -o -path /sys  -prune -o \
@@ -202,7 +272,12 @@ timeout 600 find / \
     > "$OUTPUT_DIR/suid_sgid_files.txt" || true
 _section_err "Section 7 SUID/SGID" "$ERR_DIR/s7_suid.err"
 
+suid_count=$(wc -l < "$OUTPUT_DIR/suid_sgid_files.txt" 2>/dev/null || echo 0)
+log_metric "suid_sgid_files" "$suid_count" "count"
+
 # SECTION 8 — PROCESS AGE & ROOTKIT CHECKS
+
+log_section "Process Age and Rootkit Checks"
 echo "[*] Checking process age and rootkit indicators..."
 
 ps -eo pid,user,group,etime,cmd --sort=-etime 2>"$ERR_DIR/s8_procs.err" \
@@ -210,20 +285,36 @@ ps -eo pid,user,group,etime,cmd --sort=-etime 2>"$ERR_DIR/s8_procs.err" \
     > "$OUTPUT_DIR/top_old_procs.txt" || _note_err "ps etime" $?
 _section_err "Section 8 process age" "$ERR_DIR/s8_procs.err"
 
-command -v chkrootkit >/dev/null 2>&1 \
-    && chkrootkit > "$OUTPUT_DIR/chkrootkit.txt" 2>"$ERR_DIR/s8_chkrootkit.err" \
-    || echo "(chkrootkit not installed)" > "$OUTPUT_DIR/chkrootkit.txt"
+if command -v chkrootkit >/dev/null 2>&1; then
+    chkrootkit > "$OUTPUT_DIR/chkrootkit.txt" 2>"$ERR_DIR/s8_chkrootkit.err" || true
+    _section_err "Section 8 chkrootkit" "$ERR_DIR/s8_chkrootkit.err"
+    if grep -qiE '^INFECTED' "$OUTPUT_DIR/chkrootkit.txt" 2>/dev/null; then
+        infected=$(grep -iE '^INFECTED' "$OUTPUT_DIR/chkrootkit.txt" | head -5 | paste -sd';')
+        log_finding "critical" "chkrootkit reports INFECTED status" "$infected"
+    fi
+else
+    echo "(chkrootkit not installed)" > "$OUTPUT_DIR/chkrootkit.txt"
+fi
 
-command -v rkhunter >/dev/null 2>&1 \
-    && rkhunter --checkall --sk --nolog > "$OUTPUT_DIR/rkhunter.txt" 2>"$ERR_DIR/s8_rkhunter.err" \
-    || echo "(rkhunter not installed)" > "$OUTPUT_DIR/rkhunter.txt"
+if command -v rkhunter >/dev/null 2>&1; then
+    rkhunter --checkall --sk --nolog > "$OUTPUT_DIR/rkhunter.txt" 2>"$ERR_DIR/s8_rkhunter.err" || true
+    _section_err "Section 8 rkhunter" "$ERR_DIR/s8_rkhunter.err"
+    if grep -qiE 'Warning|Infected' "$OUTPUT_DIR/rkhunter.txt" 2>/dev/null; then
+        log_finding "high" "rkhunter reported warnings or infections" \
+            "review output/suspicious_net/rkhunter.txt"
+    fi
+else
+    echo "(rkhunter not installed)" > "$OUTPUT_DIR/rkhunter.txt"
+fi
 
 # SECTION 9 — NETWORK STATISTICS & MISC
+
+log_section "Network Statistics"
 echo "[*] Collecting network statistics..."
 
 ss -tunap 2>"$ERR_DIR/s9_counts.err" \
     | awk '{print $5}' \
-    | sed -E 's/:[0-9]+$//' \
+    | sed -E 's/(\]?):[0-9]+$/\1/' \
     | sort | uniq -c | sort -nr \
     > "$OUTPUT_DIR/remote_ip_counts.txt" || _note_err "remote ip counts" $?
 _section_err "Section 9 IP counts" "$ERR_DIR/s9_counts.err"
@@ -243,7 +334,17 @@ ps -eo pid,cmd > "$OUTPUT_DIR/all_pids_cmds.txt" 2>"$ERR_DIR/s9_allpids.err" \
 _section_err "Section 9 all pids" "$ERR_DIR/s9_allpids.err"
 
 # SECTION 10 — SUMMARY
+
+log_section "Summary"
 echo "[*] Generating summary..."
+
+total_remote=$(wc -l < "$OUTPUT_DIR/remote_ips.txt"        2>/dev/null || echo 0)
+total_public=$(wc -l < "$OUTPUT_DIR/remote_ips_public.txt" 2>/dev/null || echo 0)
+total_pids=$(wc -l   < "$OUTPUT_DIR/pids_with_network.txt" 2>/dev/null || echo 0)
+
+log_metric "total_remote_ips"  "$total_remote" "count"
+log_metric "total_public_ips"  "$total_public" "count"
+log_metric "total_network_pids" "$total_pids"  "count"
 
 {
     echo "========================================================"
@@ -254,9 +355,9 @@ echo "[*] Generating summary..."
     echo
 
     echo "--- Counts ---"
-    echo "  Remote IPs (total):  $(wc -l < "$OUTPUT_DIR/remote_ips.txt" 2>/dev/null || echo 0)"
-    echo "  Remote IPs (public): $(wc -l < "$OUTPUT_DIR/remote_ips_public.txt" 2>/dev/null || echo 0)"
-    echo "  PIDs w/ network:     $(wc -l < "$OUTPUT_DIR/pids_with_network.txt" 2>/dev/null || echo 0)"
+    echo "  Remote IPs (total):  $total_remote"
+    echo "  Remote IPs (public): $total_public"
+    echo "  PIDs w/ network:     $total_pids"
 
     echo
     echo "--- Interesting Connections ---"

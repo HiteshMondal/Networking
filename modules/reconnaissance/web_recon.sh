@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 source "$PROJECT_ROOT/lib/init.sh"
+log_init "web_recon"
 
 set -eo pipefail
 
@@ -20,7 +21,20 @@ ERRORS_FILE="$OUTPUT_DIR/errors_summary.txt"
 
 _note_err() {
     local label="$1" ec="${2:-?}"
-    echo "[ERROR] '$label' failed (exit $ec)" >> "$ERRORS_FILE"
+    local msg="[ERROR] '$label' failed (exit $ec)"
+    echo "$msg" >> "$ERRORS_FILE"
+    log_error "$msg"
+}
+
+_section_err() {
+    local sec="$1" errfile="$2"
+    if [ -s "$errfile" ]; then
+        local msg="[WARN] $sec: see errors/$(basename "$errfile")"
+        echo "$msg" >> "$ERRORS_FILE"
+        log_warning "$msg"
+    else
+        rm -f "$errfile"
+    fi
 }
 
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
@@ -28,109 +42,184 @@ date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
 
 # TARGET INPUT & NORMALISATION
 
+log_section "Target Acquisition"
+
 if [ -n "${1:-}" ]; then
     RAW_TARGET="$1"
 else
-    read -r -p "Enter target URL (e.g. https://example.com or example.com): " RAW_TARGET
+    if [ -t 0 ] && [ -t 2 ]; then
+        read -r -p "Enter target URL (e.g. https://example.com or example.com): " RAW_TARGET </dev/tty
+    else
+        echo "[-] No TARGET argument supplied and stdin is not a terminal." >&2
+        echo "    Usage: web_recon.sh <TARGET>" >&2
+        exit 1
+    fi
 fi
 
 # Strip protocol, paths, and ports → clean hostname
-TARGET=$(printf "%s" "$RAW_TARGET" | sed -E '
+TARGET=$(printf '%s' "$RAW_TARGET" | sed -E '
     s#^https?://##;
     s#^ssh://##;
     s#/.*##;
-    s/:.*$##
+    s/:.*$//
 ')
 
+if [ -z "$TARGET" ]; then
+    echo "[-] Could not extract a valid hostname from: $RAW_TARGET" >&2
+    exit 1
+fi
+
 echo "Target: $TARGET" | tee "$OUTPUT_DIR/target.txt"
+log_metric "target" "$TARGET" "label"
 
 # SECTION 1 — DNS ENUMERATION
 
+log_section "DNS Enumeration"
 echo "[*] Enumerating DNS records..."
 
-dig +noall +answer "$TARGET"       > "$OUTPUT_DIR/dig_a.txt"       2>"$ERR_DIR/dns_a.err"   || _note_err "dig A" $?
-dig +short NS "$TARGET"            > "$OUTPUT_DIR/dig_ns.txt"      2>"$ERR_DIR/dns_ns.err"  || _note_err "dig NS" $?
-dig +short SOA "$TARGET"           > "$OUTPUT_DIR/dig_soa.txt"     2>"$ERR_DIR/dns_soa.err" || _note_err "dig SOA" $?
-dig ANY "$TARGET" +noall +answer   > "$OUTPUT_DIR/dig_any.txt"     2>"$ERR_DIR/dns_any.err" || _note_err "dig ANY" $?
-host "$TARGET"                     > "$OUTPUT_DIR/host.txt"        2>"$ERR_DIR/host.err"    || _note_err "host" $?
-nslookup "$TARGET"                 > "$OUTPUT_DIR/nslookup.txt"    2>"$ERR_DIR/ns.err"      || _note_err "nslookup" $?
-whois "$TARGET"                    > "$OUTPUT_DIR/whois.txt"       2>"$ERR_DIR/whois.err"   || _note_err "whois" $?
+dig +noall +answer "$TARGET"       > "$OUTPUT_DIR/dig_a.txt"    2>"$ERR_DIR/dns_a.err"   || _note_err "dig A"   $?
+dig +short NS      "$TARGET"       > "$OUTPUT_DIR/dig_ns.txt"   2>"$ERR_DIR/dns_ns.err"  || _note_err "dig NS"  $?
+dig +short SOA     "$TARGET"       > "$OUTPUT_DIR/dig_soa.txt"  2>"$ERR_DIR/dns_soa.err" || _note_err "dig SOA" $?
+dig ANY            "$TARGET" +noall +answer \
+                                   > "$OUTPUT_DIR/dig_any.txt"  2>"$ERR_DIR/dns_any.err" || _note_err "dig ANY" $?
+host      "$TARGET"                > "$OUTPUT_DIR/host.txt"     2>"$ERR_DIR/host.err"    || _note_err "host"    $?
+nslookup  "$TARGET"                > "$OUTPUT_DIR/nslookup.txt" 2>"$ERR_DIR/ns.err"      || _note_err "nslookup" $?
+whois     "$TARGET"                > "$OUTPUT_DIR/whois.txt"    2>"$ERR_DIR/whois.err"   || _note_err "whois"   $?
 
 for f in "$ERR_DIR"/dns_*.err "$ERR_DIR/host.err" "$ERR_DIR/ns.err" "$ERR_DIR/whois.err"; do
-    [ -s "$f" ] \
-        && echo "[WARN] $(basename "$f" .err): see errors/$(basename "$f")" >> "$ERRORS_FILE" \
-        || rm -f "$f"
+    _section_err "DNS enum $(basename "$f" .err)" "$f"
 done
+
+resolved_ip=$(dig +short "$TARGET" 2>/dev/null | grep -oE '^[0-9.]+' | head -1 || true)
+log_metric "resolved_ip" "${resolved_ip:-unresolved}" "label"
+[ -z "$resolved_ip" ] && log_finding "medium" "Target hostname did not resolve to an IP" \
+    "target=$TARGET — DNS may be unreachable or target is offline"
 
 # SECTION 2 — BASIC NETWORK REACHABILITY
 
+log_section "Network Reachability"
 echo "[*] Checking network reachability..."
 
 ping -c 4 "$TARGET"                > "$OUTPUT_DIR/ping.txt"        2>/dev/null || true
 traceroute "$TARGET"               > "$OUTPUT_DIR/traceroute.txt"  2>/dev/null \
     || tracepath "$TARGET"         >> "$OUTPUT_DIR/traceroute.txt" 2>/dev/null || true
 
+ping_loss=$(grep -oE '[0-9]+% packet loss' "$OUTPUT_DIR/ping.txt" 2>/dev/null | head -1 || true)
+log_metric "ping_packet_loss" "${ping_loss:-unknown}" "label"
+
 # SECTION 3 — HTTP / HTTPS HEADER ENUMERATION
 
+log_section "HTTP/HTTPS Header Enumeration"
 echo "[*] Fetching HTTP/HTTPS headers..."
 
 curl -I --max-time 15 "http://$TARGET"  > "$OUTPUT_DIR/curl_http_headers.txt"  2>/dev/null || true
 curl -I --max-time 15 "https://$TARGET" > "$OUTPUT_DIR/curl_https_headers.txt" 2>/dev/null || true
 
+# Check for security-relevant response headers
+for hdr_file in "$OUTPUT_DIR/curl_http_headers.txt" "$OUTPUT_DIR/curl_https_headers.txt"; do
+    [ -s "$hdr_file" ] || continue
+    proto=$(echo "$hdr_file" | grep -oE 'http[s]*')
+    grep -qiE 'Strict-Transport-Security' "$hdr_file" \
+        || log_finding "low" "Missing HSTS header on $proto" "target=$TARGET"
+    grep -qiE 'X-Frame-Options|Content-Security-Policy' "$hdr_file" \
+        || log_finding "low" "Missing clickjacking protection header on $proto" "target=$TARGET"
+    grep -qiE 'Server:' "$hdr_file" \
+        && log_finding "info" "Server header present (version disclosure risk)" \
+            "target=$TARGET $(grep -i 'Server:' "$hdr_file" | head -1)"
+done
+
 # SECTION 4 — PORT SCANNING & SERVICE DETECTION
 
+log_section "Port Scanning and Service Detection"
 echo "[*] Running port scans..."
 
-command -v nmap >/dev/null 2>&1 && \
-    nmap -Pn -sS -sV -O --script "default,safe" \
+if command -v nmap >/dev/null 2>&1; then
+    _nmap_os_flag=""
+    if [ "$EUID" -eq 0 ] 2>/dev/null; then
+        _nmap_os_flag="-O"
+    elif grep -qE 'CapEff:\s*[1-9a-f]' "/proc/$$/status" 2>/dev/null; then
+        _nmap_os_flag="-O"
+    else
+        log_warning "nmap OS detection (-O) skipped — requires root or CAP_NET_RAW"
+    fi
+    # shellcheck disable=SC2086
+    nmap -Pn -sS -sV $_nmap_os_flag --script "default,safe" \
         -oA "$OUTPUT_DIR/nmap_full" "$TARGET" 2>"$ERR_DIR/nmap_full.err" \
-    || _note_err "nmap full scan" $?
-[ -s "$ERR_DIR/nmap_full.err" ] || rm -f "$ERR_DIR/nmap_full.err"
+        || _note_err "nmap full scan" $?
+    _section_err "Section 4 nmap" "$ERR_DIR/nmap_full.err"
+else
+    echo "(nmap not installed)" >> "$ERRORS_FILE"
+    log_warning "nmap not found — skipping full port scan"
+fi
 
-command -v masscan >/dev/null 2>&1 && \
+if command -v masscan >/dev/null 2>&1; then
     masscan -p1-65535 --rate=1000 "$TARGET" \
         -oL "$OUTPUT_DIR/masscan.out" 2>"$ERR_DIR/masscan.err" \
-    || _note_err "masscan" $?
-[ -s "$ERR_DIR/masscan.err" ] || rm -f "$ERR_DIR/masscan.err"
+        || _note_err "masscan" $?
+    _section_err "Section 4 masscan" "$ERR_DIR/masscan.err"
+
+    open_ports=$(grep -c "^open" "$OUTPUT_DIR/masscan.out" 2>/dev/null || echo 0)
+    log_metric "masscan_open_ports" "$open_ports" "count"
+fi
 
 # SECTION 5 — WEB TECHNOLOGY FINGERPRINTING
 
+log_section "Web Technology Fingerprinting"
 echo "[*] Fingerprinting web technologies..."
 
-command -v whatweb >/dev/null 2>&1 && {
+if command -v whatweb >/dev/null 2>&1; then
     whatweb -a 3 "http://$TARGET"  > "$OUTPUT_DIR/whatweb_http.txt"  2>/dev/null || true
     whatweb -a 3 "https://$TARGET" > "$OUTPUT_DIR/whatweb_https.txt" 2>/dev/null || true
-}
+else
+    log_warning "whatweb not found — web tech fingerprinting unavailable"
+fi
 
 command -v httprobe >/dev/null 2>&1 && \
     printf "%s\n" "$TARGET" | httprobe > "$OUTPUT_DIR/httprobe.out" 2>/dev/null || true
 
-command -v gowitness >/dev/null 2>&1 && \
+if command -v gowitness >/dev/null 2>&1; then
     gowitness single "http://$TARGET" \
-        --disable-db --no-browser --single-timeout 20 \
-        --output "$OUTPUT_DIR/gowitness_http" 2>/dev/null || true
+        --disable-db --timeout 20 \
+        --output "$OUTPUT_DIR/gowitness_http" 2>"$ERR_DIR/gowitness.err" \
+        || _note_err "gowitness" $?
+    _section_err "Section 5 gowitness" "$ERR_DIR/gowitness.err"
+fi
 
 # SECTION 6 — WEB VULNERABILITY SCANNING
 
+log_section "Web Vulnerability Scanning"
 echo "[*] Running web vulnerability scans..."
 
-command -v nikto >/dev/null 2>&1 && \
+if command -v nikto >/dev/null 2>&1; then
     nikto -h "http://$TARGET" \
         -o "$OUTPUT_DIR/nikto_http.txt" 2>"$ERR_DIR/nikto.err" \
-    || _note_err "nikto" $?
-[ -s "$ERR_DIR/nikto.err" ] || rm -f "$ERR_DIR/nikto.err"
+        || _note_err "nikto" $?
+    _section_err "Section 6 nikto" "$ERR_DIR/nikto.err"
 
-command -v gobuster >/dev/null 2>&1 && {
-    gobuster dir -u "http://$TARGET" \
-        -w /usr/share/wordlists/dirb/common.txt \
-        -o "$OUTPUT_DIR/gobuster_http.txt"  2>/dev/null || true
-    gobuster dir -u "https://$TARGET" \
-        -w /usr/share/wordlists/dirb/common.txt \
-        -o "$OUTPUT_DIR/gobuster_https.txt" 2>/dev/null || true
-}
+    nikto_findings=$(grep -cE 'OSVDB|CVE|WARNING' "$OUTPUT_DIR/nikto_http.txt" 2>/dev/null || echo 0)
+    log_metric "nikto_findings" "$nikto_findings" "count"
+    [ "$nikto_findings" -gt 0 ] && log_finding "medium" \
+        "Nikto found potential web vulnerabilities" \
+        "count=$nikto_findings — review nikto_http.txt"
+else
+    log_warning "nikto not found — web vulnerability scan skipped"
+fi
+
+if command -v gobuster >/dev/null 2>&1; then
+    for wordlist in /usr/share/wordlists/dirb/common.txt \
+                    /usr/share/dirb/wordlists/common.txt; do
+        [ -r "$wordlist" ] || continue
+        gobuster dir -u "http://$TARGET"  -w "$wordlist" \
+            -o "$OUTPUT_DIR/gobuster_http.txt"  2>/dev/null || true
+        gobuster dir -u "https://$TARGET" -w "$wordlist" \
+            -o "$OUTPUT_DIR/gobuster_https.txt" 2>/dev/null || true
+        break
+    done
+fi
 
 # SECTION 7 — SSL / TLS ENUMERATION
 
+log_section "SSL/TLS Enumeration"
 echo "[*] Enumerating SSL/TLS configuration..."
 
 command -v sslscan >/dev/null 2>&1 && \
@@ -139,53 +228,138 @@ command -v sslscan >/dev/null 2>&1 && \
 command -v sslyze >/dev/null 2>&1 && \
     sslyze --regular "$TARGET" > "$OUTPUT_DIR/sslyze.txt" 2>/dev/null || true
 
-command -v openssl >/dev/null 2>&1 && {
+if command -v openssl >/dev/null 2>&1; then
     openssl s_client -connect "$TARGET:443" \
         -servername "$TARGET" -showcerts \
         < /dev/null > "$OUTPUT_DIR/openssl_sclient.pem" 2>/dev/null || true
     openssl x509 -in "$OUTPUT_DIR/openssl_sclient.pem" \
         -noout -text \
         > "$OUTPUT_DIR/openssl_cert.txt" 2>/dev/null || true
-}
 
-command -v nmap >/dev/null 2>&1 && \
+    # Check certificate validity / expiry
+    expiry=$(openssl x509 -in "$OUTPUT_DIR/openssl_sclient.pem" \
+        -noout -enddate 2>/dev/null | cut -d= -f2 || true)
+    if [ -n "$expiry" ]; then
+        log_metric "tls_cert_expiry" "$expiry" "date"
+        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || true)
+        now_epoch=$(date +%s)
+        if [ -n "$expiry_epoch" ] && [ "$expiry_epoch" -lt "$now_epoch" ]; then
+            log_finding "high" "TLS certificate has expired" \
+                "target=$TARGET expired=$expiry"
+        elif [ -n "$expiry_epoch" ]; then
+            days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
+            [ "$days_left" -lt 30 ] && log_finding "medium" \
+                "TLS certificate expiring soon" \
+                "target=$TARGET days_left=$days_left"
+        fi
+    fi
+fi
+
+if command -v nmap >/dev/null 2>&1; then
     nmap --reason -p 80,443,8080,8443 -sV \
         --script=http-title,http-server-header,vuln \
         -oN "$OUTPUT_DIR/nmap_web_services.txt" \
         "$TARGET" 2>/dev/null || true
+fi
 
 # SECTION 8 — PAGE CONTENT COLLECTION
 
+log_section "Page Content Collection"
 echo "[*] Downloading page content..."
 
 curl -sL --max-time 20 "http://$TARGET"  > "$OUTPUT_DIR/page_http.html"  2>/dev/null || true
 curl -sL --max-time 20 "https://$TARGET" > "$OUTPUT_DIR/page_https.html" 2>/dev/null || true
 
+# Extract links and forms for further recon
+for html in "$OUTPUT_DIR/page_http.html" "$OUTPUT_DIR/page_https.html"; do
+    [ -s "$html" ] || continue
+    proto=$(echo "$html" | grep -oE 'http[s]*')
+    grep -oiE 'href="[^"]*"|src="[^"]*"' "$html" | sort -u \
+        > "$OUTPUT_DIR/links_${proto}.txt" 2>/dev/null || true
+    grep -oiE '<form[^>]*>' "$html" \
+        > "$OUTPUT_DIR/forms_${proto}.txt" 2>/dev/null || true
+done
+
+form_count=$(cat "$OUTPUT_DIR"/forms_*.txt 2>/dev/null | wc -l || echo 0)
+log_metric "html_forms_found" "$form_count" "count"
+
 # SECTION 9 — IP-BASED ENUMERATION
 
+log_section "IP-based Enumeration"
 echo "[*] Running IP-based enumeration..."
 
-RESOLVED_IP=$(dig +short "$TARGET" 2>/dev/null | head -1)
+RESOLVED_IP=$(dig +short "$TARGET" 2>/dev/null | grep -oE '^[0-9.]+' | head -1 || true)
 
 if [ -n "$RESOLVED_IP" ]; then
     echo "$RESOLVED_IP" > "$OUTPUT_DIR/target_ip.txt"
 
-    command -v nmap >/dev/null 2>&1 && \
+    if command -v nmap >/dev/null 2>&1; then
         nmap -Pn -sS -sV \
             -oN "$OUTPUT_DIR/nmap_ip_top_ports.txt" \
             "$RESOLVED_IP" 2>/dev/null || true
+    fi
 
-    curl -s "https://api.hackertarget.com/reverseiplookup/?q=$RESOLVED_IP" \
+    curl -s --max-time 15 \
+        "https://api.hackertarget.com/reverseiplookup/?q=$RESOLVED_IP" \
         > "$OUTPUT_DIR/reverse_ip.txt" 2>/dev/null || true
+
+    reverse_count=$(grep -c "^[a-zA-Z0-9]" "$OUTPUT_DIR/reverse_ip.txt" 2>/dev/null || echo 0)
+    log_metric "reverse_ip_hostnames" "$reverse_count" "count"
 else
     echo "(could not resolve $TARGET)" > "$OUTPUT_DIR/target_ip.txt"
+    log_warning "Could not resolve $TARGET to an IP address — IP-based scans skipped"
 fi
 
-# ENVIRONMENT CAPTURE
+# ENVIRONMENT CAPTURE (filtered — remove secrets)
 
-env > "$OUTPUT_DIR/env_web_recon.txt" 2>/dev/null || true
+# AWS_SECRET_ACCESS_KEY, tokens, passwords etc. Filter to safe/useful vars only.
+env | grep -vE '^(AWS_SECRET|GITHUB_TOKEN|SLACK_TOKEN|PASSWORD|SECRET|TOKEN|KEY=)' \
+    > "$OUTPUT_DIR/env_web_recon.txt" 2>/dev/null || true
 
-# ARCHIVE (contents only, no embedded absolute path)
+# SUMMARY
+
+log_section "Web Recon Summary"
+
+{
+    echo "========================================================"
+    echo "  Web Reconnaissance — Summary"
+    echo "  Generated: $(date)"
+    echo "  Target:    $TARGET ($RESOLVED_IP)"
+    echo "========================================================"
+    echo
+
+    echo "--- DNS ---"
+    [ -s "$OUTPUT_DIR/dig_a.txt" ]  && echo "  A records:  $(wc -l < "$OUTPUT_DIR/dig_a.txt") lines"
+    [ -s "$OUTPUT_DIR/dig_ns.txt" ] && echo "  NS records: $(cat "$OUTPUT_DIR/dig_ns.txt")"
+
+    echo
+    echo "--- Open Ports (masscan) ---"
+    grep "^open" "$OUTPUT_DIR/masscan.out" 2>/dev/null | head -20 || echo "  (not run)"
+
+    echo
+    echo "--- Web Tech ---"
+    cat "$OUTPUT_DIR/whatweb_https.txt" "$OUTPUT_DIR/whatweb_http.txt" 2>/dev/null | head -5 \
+        || echo "  (not run)"
+
+    echo
+    echo "--- TLS Certificate ---"
+    [ -s "$OUTPUT_DIR/openssl_cert.txt" ] \
+        && grep -E 'Subject:|Not After' "$OUTPUT_DIR/openssl_cert.txt" | head -4 \
+        || echo "  (not available)"
+
+    echo
+    echo "--- Script Errors ---"
+    if [ -s "$ERRORS_FILE" ]; then
+        cat "$ERRORS_FILE"
+    else
+        echo "[OK] No section errors recorded."
+    fi
+
+} > "$OUTPUT_DIR/web_recon_summary.txt"
+
+cat "$OUTPUT_DIR/web_recon_summary.txt"
+
+# ARCHIVE
 
 ARCHIVE="$OUTPUT_DIR/web_recon_archive.tar.gz"
 tar -czf "$ARCHIVE" -C "$(dirname "$OUTPUT_DIR")" "$(basename "$OUTPUT_DIR")" 2>/dev/null || true

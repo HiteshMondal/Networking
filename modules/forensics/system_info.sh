@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 source "$PROJECT_ROOT/lib/init.sh"
+log_init "system_info"
 
 set -eo pipefail
 
@@ -20,7 +21,20 @@ ERRORS_FILE="$OUTPUT_DIR/errors_summary.txt"
 
 _note_err() {
     local label="$1" ec="${2:-?}"
-    echo "[ERROR] '$label' failed (exit $ec)" >> "$ERRORS_FILE"
+    local msg="[ERROR] '$label' failed (exit $ec)"
+    echo "$msg" >> "$ERRORS_FILE"
+    log_error "$msg"
+}
+
+_section_err() {
+    local sec="$1" errfile="$2"
+    if [ -s "$errfile" ]; then
+        local msg="[WARN] $sec: see errors/$(basename "$errfile")"
+        echo "$msg" >> "$ERRORS_FILE"
+        log_warning "$msg"
+    else
+        rm -f "$errfile"
+    fi
 }
 
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTPUT_DIR/run_timestamp.txt" 2>/dev/null \
@@ -30,6 +44,7 @@ TARGET="${1:-}"
 
 # SECTION 1 — BASIC SYSTEM IDENTIFICATION
 
+log_section "System Identification"
 echo "[*] Collecting system identification..."
 
 {
@@ -44,10 +59,15 @@ echo "[*] Collecting system identification..."
     arch 2>/dev/null || uname -m
 
 } > "$OUTPUT_DIR/system_identity.txt" 2>"$ERR_DIR/s1_identity.err"
-[ -s "$ERR_DIR/s1_identity.err" ] || rm -f "$ERR_DIR/s1_identity.err"
+_section_err "Section 1 identity" "$ERR_DIR/s1_identity.err"
+
+os_info=$(grep -m1 '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || uname -s)
+log_metric "os" "$os_info" "label"
+log_metric "hostname" "$(hostname 2>/dev/null || echo unknown)" "label"
 
 # SECTION 2 — PLATFORM-SPECIFIC HARDWARE ENUMERATION
 
+log_section "Hardware Enumeration"
 echo "[*] Enumerating hardware..."
 
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -73,7 +93,7 @@ else
         lspci -vmm 2>/dev/null || true
         lsusb 2>/dev/null      || true
         echo
-        dmidecode -t system   2>/dev/null || true
+        dmidecode -t system    2>/dev/null || true
         dmidecode -t baseboard 2>/dev/null || true
         dmidecode -t memory    2>/dev/null || true
         echo
@@ -86,12 +106,15 @@ else
 
 fi
 
-[ -s "$ERR_DIR/s2_hw.err" ] \
-    && echo "[WARN] Section 2 (Hardware): see errors/s2_hw.err" >> "$ERRORS_FILE" \
-    || rm -f "$ERR_DIR/s2_hw.err"
+_section_err "Section 2 hardware" "$ERR_DIR/s2_hw.err"
+
+# Emit memory metric from /proc/meminfo if available
+mem_total=$(awk '/^MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+log_metric "mem_total_kb" "$mem_total" "kb"
 
 # SECTION 3 — NETWORK ENUMERATION
 
+log_section "Network Enumeration"
 echo "[*] Enumerating network state..."
 
 {
@@ -116,7 +139,7 @@ echo "[*] Enumerating network state..."
 
     echo
     echo "=== NetworkManager ==="
-    nmcli device status  2>/dev/null || true
+    nmcli device status   2>/dev/null || true
     nmcli connection show 2>/dev/null || true
 
     echo
@@ -125,19 +148,21 @@ echo "[*] Enumerating network state..."
 
     echo
     echo "=== Ethernet details ==="
-    FIRST_IFACE=$(ip -o -4 addr show | awk '{print $2; exit}' 2>/dev/null)
+    FIRST_IFACE=$(ip -o -4 addr show 2>/dev/null | awk '{print $2; exit}')
     [ -n "$FIRST_IFACE" ] && ethtool "$FIRST_IFACE" 2>/dev/null || true
     FIRST_LINK=$(ip -o link show 2>/dev/null \
         | awk -F: '$0 !~ /lo/ { gsub(/ /,"",$2); print $2; exit }')
     [ -n "$FIRST_LINK" ] && ethtool -i "$FIRST_LINK" 2>/dev/null || true
 
 } > "$OUTPUT_DIR/network_state.txt" 2>"$ERR_DIR/s3_net.err"
-[ -s "$ERR_DIR/s3_net.err" ] \
-    && echo "[WARN] Section 3 (Network): see errors/s3_net.err" >> "$ERRORS_FILE" \
-    || rm -f "$ERR_DIR/s3_net.err"
+_section_err "Section 3 network" "$ERR_DIR/s3_net.err"
+
+iface_count=$(ip -o link show 2>/dev/null | wc -l || echo 0)
+log_metric "network_interfaces" "$iface_count" "count"
 
 # SECTION 4 — USERS, ACTIVITY & AUTH
 
+log_section "Users and Activity"
 echo "[*] Enumerating users and activity..."
 
 {
@@ -154,10 +179,22 @@ echo "[*] Enumerating users and activity..."
     getent passwd root 2>/dev/null || true
 
 } > "$OUTPUT_DIR/users_activity.txt" 2>"$ERR_DIR/s4_users.err"
-[ -s "$ERR_DIR/s4_users.err" ] || rm -f "$ERR_DIR/s4_users.err"
+_section_err "Section 4 users" "$ERR_DIR/s4_users.err"
+
+# Count local user accounts (UID >= 1000, non-system)
+user_count=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd 2>/dev/null | wc -l || echo 0)
+log_metric "local_user_accounts" "$user_count" "count"
+
+# Flag any UID-0 accounts beyond root
+uid0_extras=$(awk -F: '$3 == 0 && $1 != "root" {print $1}' /etc/passwd 2>/dev/null)
+if [ -n "$uid0_extras" ]; then
+    log_finding "critical" "Non-root account with UID 0 detected" \
+        "accounts=$uid0_extras — possible backdoor account"
+fi
 
 # SECTION 5 — PROCESS, SERVICES & PERSISTENCE
 
+log_section "Processes, Services and Persistence"
 echo "[*] Enumerating processes and persistence..."
 
 {
@@ -187,19 +224,21 @@ echo "[*] Enumerating processes and persistence..."
     cat /etc/fstab 2>/dev/null || true
 
 } > "$OUTPUT_DIR/processes_persistence.txt" 2>"$ERR_DIR/s5_procs.err"
-[ -s "$ERR_DIR/s5_procs.err" ] || rm -f "$ERR_DIR/s5_procs.err"
+_section_err "Section 5 processes" "$ERR_DIR/s5_procs.err"
 
 # SECTION 6 — CREDENTIAL HUNTING
 
+log_section "Credential Hunting"
 echo "[*] Hunting credentials and sensitive files..."
 
 {
     echo "=== Password strings in /etc ==="
-    grep -R "password" /etc 2>/dev/null | head -30 || true
+    grep -Rn "password" /etc 2>/dev/null | head -30 || true
 
     echo
     echo "=== Private keys and PEM files ==="
-    find / -type f \( -name "id_rsa" -o -name "*.pem" -o -name "*.key" \) \
+    find / -type f \( -name "id_rsa" -o -name "id_ed25519" -o -name "id_ecdsa" \
+                   -o -name "*.pem" -o -name "*.key" \) \
         2>/dev/null | head -20 || true
 
     echo
@@ -207,8 +246,10 @@ echo "[*] Hunting credentials and sensitive files..."
     find / -perm -4000 -type f -exec ls -ld {} \; 2>/dev/null | head -30 || true
 
     echo
-    echo "=== sudo -l ==="
-    sudo -l 2>/dev/null || true
+    # Run sudo -l non-interactively; -n prevents password prompt (exits 1 if
+    # a password would be required, rather than blocking on stdin).
+    echo "=== sudo -l (non-interactive) ==="
+    sudo -nl 2>/dev/null || echo "(sudo -l not available or requires password)"
 
     echo
     echo "=== SSH config ==="
@@ -219,10 +260,37 @@ echo "[*] Hunting credentials and sensitive files..."
     ss -tunap 2>/dev/null | grep ssh || true
 
 } > "$OUTPUT_DIR/credential_hunting.txt" 2>"$ERR_DIR/s6_creds.err"
-[ -s "$ERR_DIR/s6_creds.err" ] || rm -f "$ERR_DIR/s6_creds.err"
+_section_err "Section 6 credentials" "$ERR_DIR/s6_creds.err"
+
+# Emit findings for discovered private keys
+key_count=$(find / -type f \( -name "id_rsa" -o -name "id_ed25519" -o -name "id_ecdsa" \
+    -o -name "*.pem" -o -name "*.key" \) 2>/dev/null | wc -l | tr -d ' \n' || echo 0)
+log_metric "private_key_files" "$key_count" "count"
+if [ "$key_count" -gt 0 ]; then
+    log_finding "high" "Private key / PEM files found on filesystem" \
+        "count=$key_count — review credential_hunting.txt"
+fi
+
+# Count world-readable private key files as a higher severity
+world_readable_keys=$(find / -type f \( -name "id_rsa" -o -name "id_ed25519" \
+    -o -name "*.pem" -o -name "*.key" \) -perm /o+r 2>/dev/null | wc -l | tr -d ' \n' || echo 0)
+
+if [ "$world_readable_keys" -gt 0 ]; then
+    log_finding "critical" "World-readable private key / PEM files" \
+        "count=$world_readable_keys — immediate remediation required"
+fi
+
+# SUID count metric
+suid_count=$(find / -perm -4000 -type f 2>/dev/null | wc -l | tr -d ' \n' || echo 0)
+log_metric "suid_binaries" "$suid_count" "count"
+if [ "$suid_count" -gt 30 ]; then
+    log_finding "medium" "Elevated SUID binary count" \
+        "count=$suid_count — review credential_hunting.txt for unexpected entries"
+fi
 
 # SECTION 7 — KERNEL & RECENT LOGS
 
+log_section "Kernel and Journal Entries"
 echo "[*] Collecting kernel and journal entries..."
 
 {
@@ -234,33 +302,52 @@ echo "[*] Collecting kernel and journal entries..."
     journalctl -n 50 --no-pager 2>/dev/null || true
 
 } > "$OUTPUT_DIR/kernel_journal.txt" 2>"$ERR_DIR/s7_logs.err"
-[ -s "$ERR_DIR/s7_logs.err" ] || rm -f "$ERR_DIR/s7_logs.err"
+_section_err "Section 7 kernel/journal" "$ERR_DIR/s7_logs.err"
 
 # SECTION 8 — ACTIVE SCANNING (optional, if target supplied)
 
-# Default target to local network if not supplied
+# Resolve TARGET to a plain host/IP — strip any CIDR prefix that might be
+# returned when falling back to the interface address.
 if [ -z "$TARGET" ]; then
-    TARGET=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4; exit}')
+    # ip -o -4 addr returns lines like:  2 eth0  inet 192.168.1.5/24 ...
+    # We want only the address, not the prefix length.
+    TARGET=$(ip -o -4 addr show scope global 2>/dev/null \
+        | awk '{print $4; exit}' \
+        | cut -d/ -f1)
 fi
 
 if [ -n "$TARGET" ]; then
 
+    log_section "Active Scanning — $TARGET"
     echo "[*] Running active scans against target: $TARGET"
     echo "Target: $TARGET" > "$OUTPUT_DIR/scan_target.txt"
 
-    command -v nmap >/dev/null 2>&1 && \
-        nmap -Pn -sS -sV -O -p- \
+    if command -v nmap >/dev/null 2>&1; then
+        # OS detection (-O) requires raw socket access.  Check for root or
+        # the CAP_NET_RAW capability before enabling it so nmap doesn't error.
+        NMAP_OS_FLAG=""
+        if [ "$EUID" -eq 0 ] || \
+                grep -q "^CapEff:.*[1-9]" /proc/self/status 2>/dev/null; then
+            NMAP_OS_FLAG="-O"
+        else
+            log_warning "nmap: -O (OS detection) requires root/CAP_NET_RAW — skipped"
+        fi
+
+        # shellcheck disable=SC2086
+        nmap -Pn -sS -sV $NMAP_OS_FLAG -p- \
             --script "default,safe,discovery" \
             -oA "$OUTPUT_DIR/nmap_full" \
             "$TARGET" 2>"$ERR_DIR/s8_nmap.err" \
-        || _note_err "nmap full" $?
-    [ -s "$ERR_DIR/s8_nmap.err" ] || rm -f "$ERR_DIR/s8_nmap.err"
+            || _note_err "nmap full" $?
+        _section_err "Section 8 nmap" "$ERR_DIR/s8_nmap.err"
+    fi
 
-    command -v masscan >/dev/null 2>&1 && \
+    if command -v masscan >/dev/null 2>&1; then
         masscan -p1-65535 --rate=1000 "$TARGET" \
             -oL "$OUTPUT_DIR/masscan.out" 2>"$ERR_DIR/s8_masscan.err" \
-        || _note_err "masscan" $?
-    [ -s "$ERR_DIR/s8_masscan.err" ] || rm -f "$ERR_DIR/s8_masscan.err"
+            || _note_err "masscan" $?
+        _section_err "Section 8 masscan" "$ERR_DIR/s8_masscan.err"
+    fi
 
     # SMB / Windows enumeration
     command -v enum4linux >/dev/null 2>&1 && \
@@ -282,32 +369,37 @@ if [ -n "$TARGET" ]; then
             > "$OUTPUT_DIR/curl_head.out" 2>/dev/null || true
 
     # Service-specific nmap scripts
-    command -v nmap >/dev/null 2>&1 && \
+    if command -v nmap >/dev/null 2>&1; then
         nmap -Pn -p 80,443,8080 \
             --script http-enum,http-vuln* \
             -oN "$OUTPUT_DIR/nmap_http" \
             "$TARGET" 2>/dev/null || true
-    command -v nmap >/dev/null 2>&1 && \
         nmap -Pn -p 22 \
             --script ssh-auth-methods,ssh-hostkey \
             -oN "$OUTPUT_DIR/nmap_ssh" \
             "$TARGET" 2>/dev/null || true
-    command -v nmap >/dev/null 2>&1 && \
         nmap -Pn -p 445 \
             --script smb* \
             -oN "$OUTPUT_DIR/nmap_smb" \
             "$TARGET" 2>/dev/null || true
+    fi
+
+    log_metric "scan_target" "$TARGET" "label"
 
 else
     echo "[INFO] No target specified — active scanning skipped." \
         > "$OUTPUT_DIR/scan_target.txt"
+    log_info "Active scanning skipped — no target resolved"
 fi
 
 # ENVIRONMENT CAPTURE
 
 env > "$OUTPUT_DIR/env.txt" 2>/dev/null || true
 
-# ARCHIVE (contents only, no embedded absolute path)
+# ARCHIVE
+
+output_file_count=$(find "$OUTPUT_DIR" -maxdepth 1 -type f | wc -l)
+log_metric "output_files_collected" "$output_file_count" "count"
 
 ARCHIVE="$OUTPUT_DIR/system_info_archive.tar.gz"
 tar -czf "$ARCHIVE" -C "$(dirname "$OUTPUT_DIR")" "$(basename "$OUTPUT_DIR")" 2>/dev/null || true
@@ -315,4 +407,6 @@ tar -czf "$ARCHIVE" -C "$(dirname "$OUTPUT_DIR")" "$(basename "$OUTPUT_DIR")" 2>
 echo
 echo "[+] System info collection complete. Results in: $OUTPUT_DIR/"
 echo "[+] Archive: $ARCHIVE"
-[ -s "$ERRORS_FILE" ] && echo "[!] Errors recorded — see $ERRORS_FILE and $ERR_DIR/"
+if [ -s "$ERRORS_FILE" ]; then
+    echo "[!] Errors recorded — see $ERRORS_FILE and $ERR_DIR/"
+fi
