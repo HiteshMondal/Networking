@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # /modules/reconnaissance/web_recon.sh
+# Work on all Linux computers independent of distro
 # Web reconnaissance: DNS, ports, web tech, SSL, vulnerability scanning
 # Usage: web_recon.sh [TARGET]  — if TARGET omitted, prompts interactively
 
@@ -93,9 +94,10 @@ for f in "$ERR_DIR"/dns_*.err "$ERR_DIR/host.err" "$ERR_DIR/ns.err" "$ERR_DIR/wh
     _section_err "DNS enum $(basename "$f" .err)" "$f"
 done
 
-resolved_ip=$(dig +short "$TARGET" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1 || true)
-log_metric "resolved_ip" "${resolved_ip:-unresolved}" "label"
-[ -z "$resolved_ip" ] && log_finding "medium" "Target hostname did not resolve to an IP" \
+RESOLVED_IP=$(dig +short "$TARGET" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1 || true)
+log_metric "resolved_ip" "${RESOLVED_IP:-unresolved}" "label"
+[ -z "$RESOLVED_IP" ] && log_finding "medium" \
+    "Target hostname did not resolve to an IP" \
     "target=$TARGET — DNS may be unreachable or target is offline"
 
 # SECTION 2 — BASIC NETWORK REACHABILITY
@@ -107,7 +109,7 @@ ping -c 4 "$TARGET"                > "$OUTPUT_DIR/ping.txt"        2>/dev/null |
 traceroute "$TARGET"               > "$OUTPUT_DIR/traceroute.txt"  2>/dev/null \
     || tracepath "$TARGET"         >> "$OUTPUT_DIR/traceroute.txt" 2>/dev/null || true
 
-ping_loss=$(grep -oE '[0-9]+% packet loss' "$OUTPUT_DIR/ping.txt" 2>/dev/null | head -1 || true)
+ping_loss=$(grep -Eo '[0-9.]+% packet loss' "$OUTPUT_DIR/ping.txt" 2>/dev/null | head -1 || true)
 log_metric "ping_packet_loss" "${ping_loss:-unknown}" "label"
 
 # SECTION 3 — HTTP / HTTPS HEADER ENUMERATION
@@ -165,7 +167,8 @@ if command -v masscan >/dev/null 2>&1; then
         || _note_err "masscan" $?
     _section_err "Section 4 masscan" "$ERR_DIR/masscan.err"
 
-    open_ports=$(grep -cE '^open[[:space:]]' "$OUTPUT_DIR/masscan.out" 2>/dev/null || echo 0)
+    open_ports=$(grep -c '^open' "$OUTPUT_DIR/masscan.out" 2>/dev/null || true)
+    open_ports=${open_ports:-0}
     log_metric "masscan_open_ports" "$open_ports" "count"
 fi
 
@@ -236,15 +239,14 @@ command -v sslyze >/dev/null 2>&1 && \
     sslyze --regular "$TARGET" > "$OUTPUT_DIR/sslyze.txt" 2>/dev/null || true
 
 if command -v openssl >/dev/null 2>&1; then
-    openssl s_client -connect "$TARGET:443" \
-        -servername "$TARGET" -showcerts \
-        < /dev/null > "$OUTPUT_DIR/openssl_sclient.pem" 2>/dev/null || true
-    openssl x509 -in "$OUTPUT_DIR/openssl_sclient.pem" \
-        -noout -text \
-        > "$OUTPUT_DIR/openssl_cert.txt" 2>/dev/null || true
+    openssl s_client -connect "$TARGET:443" -servername "$TARGET" -showcerts \
+        </dev/null > "$OUTPUT_DIR/openssl_sclient.pem" 2>/dev/null || true
+    awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/ {print}' \
+    "$OUTPUT_DIR/openssl_sclient.pem" \
+    | sed -n '1,/END CERTIFICATE/p' > "$OUTPUT_DIR/server_cert.pem"
 
     # Check certificate validity / expiry
-    expiry=$(openssl x509 -in "$OUTPUT_DIR/openssl_sclient.pem" \
+    expiry=$(openssl x509 -in "$OUTPUT_DIR/server_cert.pem" \
         -noout -enddate 2>/dev/null | cut -d= -f2 || true)
     if [ -n "$expiry" ]; then
         log_metric "tls_cert_expiry" "$expiry" "date"

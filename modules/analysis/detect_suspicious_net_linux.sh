@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # /modules/analysis/detect_suspicious_net_linux.sh
 # Suspicious network activity detection
+# Work on all Linux computers independent of distro
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"

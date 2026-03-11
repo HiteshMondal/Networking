@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # /modules/forensics/forensic_collect.sh
+# Work on all Linux computers independent of distro
 # Linux forensic artifact collection
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -160,7 +161,8 @@ _section_err "ps_aux"     "$ERR_DIR/ps_aux.err"
 _section_err "top_procs"  "$ERR_DIR/top_procs.err"
 _section_err "lsmod"      "$ERR_DIR/lsmod.err"
 
-proc_count=$(ps auxww 2>/dev/null | wc -l || echo 0)
+proc_count=$(ps auxww 2>/dev/null | wc -l 2>/dev/null)
+proc_count=${proc_count:-0}
 log_metric "running_processes" "$proc_count" "count"
 
 # NETWORK CONNECTIONS & INTERFACES
@@ -185,7 +187,11 @@ ip -4 addr show  > "$OUTPUT_DIR/ip_addr.txt"  2>/dev/null || true
 ip route show    > "$OUTPUT_DIR/ip_route.txt" 2>/dev/null || true
 
 # Count established connections and emit as a metric
-estab_count=$(ss -tunap 2>/dev/null | grep -c ESTAB || echo 0)
+if command -v ss >/dev/null; then
+    estab_count=$(ss -tunap 2>/dev/null | grep -c ESTAB)
+else
+    estab_count=$(netstat -tunap 2>/dev/null | grep -c ESTABLISHED)
+fi
 log_metric "established_connections" "$estab_count" "count"
 
 # FIREWALL & CONNECTION TRACKING
@@ -205,7 +211,7 @@ log_section "Packet Capture"
 echo "[*] Attempting packet capture..."
 
 pcap_captured=false
-if tcpdump -nn -s 0 -c 1000 -w "$OUTPUT_DIR/tcpdump_capture.pcap" 2>/dev/null; then
+if timeout 10 tcpdump -nn -s 0 -c 1000 -w "$OUTPUT_DIR/tcpdump_capture.pcap" 2>/dev/null; then
     pcap_captured=true
     log_metric "pcap_tool" "tcpdump" "label"
 elif tshark -i any -c 1000 -w "$OUTPUT_DIR/tshark_capture.pcap" 2>/dev/null; then
@@ -220,8 +226,8 @@ else
 fi
 
 # NETWORK STATISTICS
-
-ss -s             > "$OUTPUT_DIR/ss_summary.txt"      2>/dev/null || true
+ss -s > "$OUTPUT_DIR/ss_summary.txt" 2>/dev/null \
+    || netstat -s > "$OUTPUT_DIR/netstat_summary.txt" 2>/dev/null || true
 cat /proc/net/tcp > "$OUTPUT_DIR/proc_net_tcp.txt"    2>/dev/null || true
 cat /proc/net/udp > "$OUTPUT_DIR/proc_net_udp.txt"    2>/dev/null || true
 cat /proc/net/arp > "$OUTPUT_DIR/proc_net_arp.txt"    2>/dev/null || true
@@ -267,8 +273,16 @@ ss -ltnp > "$OUTPUT_DIR/listening_tcp.txt" 2>/dev/null \
 ss -lunp > "$OUTPUT_DIR/listening_udp.txt" 2>/dev/null \
     || netstat -lunp > "$OUTPUT_DIR/listening_udp.txt" 2>/dev/null || true
 
-tcp_listen_count=$(ss -ltnp 2>/dev/null | tail -n +2 | wc -l || echo 0)
-udp_listen_count=$(ss -lunp 2>/dev/null | tail -n +2 | wc -l || echo 0)
+if command -v ss >/dev/null; then
+    tcp_listen_count=$(ss -ltnp 2>/dev/null | tail -n +2 | wc -l)
+else
+    tcp_listen_count=$(netstat -ltnp 2>/dev/null | tail -n +3 | wc -l)
+fi
+if command -v ss >/dev/null; then
+    udp_listen_count=$(ss -lunp 2>/dev/null | tail -n +2 | wc -l)
+else
+    udp_listen_count=$(netstat -lunp 2>/dev/null | tail -n +3 | wc -l)
+fi
 log_metric "tcp_listening_ports" "$tcp_listen_count" "count"
 log_metric "udp_listening_ports" "$udp_listen_count" "count"
 
@@ -285,8 +299,8 @@ ls -la /etc/cron* > "$OUTPUT_DIR/cron_dirs.txt" 2>/dev/null || true
 log_section "Log Keyword Hunting"
 echo "[*] Hunting keywords in logs..."
 
-grep -R "ssh"  /var/log -nH 2>/dev/null | head -500 \
-    > "$OUTPUT_DIR/ssh_related_logs_snippet.txt"  || true
+grep -R "ssh" /var/log -nH --binary-files=without-match \
+    | head -500 > "$OUTPUT_DIR/ssh_related_logs_snippet.txt" 2>/dev/null || true
 grep -R "sudo" /var/log -nH 2>/dev/null | head -500 \
     > "$OUTPUT_DIR/sudo_related_logs_snippet.txt" || true
 
@@ -298,7 +312,8 @@ log_metric "sudo_log_hits" "$sudo_hits" "count"
 # ARCHIVE & OWNERSHIP
 
 ARCHIVE="$OUTPUT_DIR/forensic_archive.tar.gz"
-tar -czf "$ARCHIVE" -C "$(dirname "$OUTPUT_DIR")" "$(basename "$OUTPUT_DIR")" 2>/dev/null || true
+tar --exclude="forensic_archive.tar.gz" \
+    -czf "$ARCHIVE" -C "$(dirname "$OUTPUT_DIR")" "$(basename "$OUTPUT_DIR")" 2>/dev/null || true
 
 log_metric "output_files_collected" \
     "$(find "$OUTPUT_DIR" -maxdepth 1 -type f | wc -l)" "count"

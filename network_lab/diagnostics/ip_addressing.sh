@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # /network_lab/diagnostics/ip_addressing.sh
+# Work on all Linux computers independent of distro
 # Topic: IP & Addressing — Interactive Lab
 # Covers: IPv4/IPv6, Subnetting (CIDR/VLSM), Private/Public, NAT/PAT, ARP
 
@@ -37,8 +38,12 @@ ip_to_binary() {
 subnet_details() {
     local cidr="$1"
     local ip="${cidr%/*}" prefix="${cidr#*/}"
-
-    local mask_int=$(( (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF ))
+    local mask_int
+    if (( prefix == 0 )); then
+        mask_int=0
+    else
+        mask_int=$(( (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF ))
+    fi
     local mask_a=$(( (mask_int >> 24) & 0xFF ))
     local mask_b=$(( (mask_int >> 16) & 0xFF ))
     local mask_c=$(( (mask_int >> 8)  & 0xFF ))
@@ -76,9 +81,12 @@ subnet_details() {
     local lhd=$(( lh_int & 0xFF ))
     local last_host="${lha}.${lhb}.${lhc}.${lhd}"
 
-    local hosts=$(( (1 << (32 - prefix)) - 2 ))
-    [[ $prefix -eq 32 ]] && hosts=1
-    [[ $prefix -eq 31 ]] && hosts=2
+    local hosts
+    if (( prefix >= 31 )); then
+        hosts=$(( prefix == 31 ? 2 : 1 ))
+    else
+        hosts=$(( (1 << (32 - prefix)) - 2 ))
+    fi
 
     echo "CIDR Notation:  ${cidr}"
     echo "IP Address:     ${ip}"
@@ -102,7 +110,7 @@ classify_ip() {
     elif [[ "$ip" =~ ^127\.                  ]]; then echo "LOOPBACK"
     elif [[ "$ip" =~ ^169\.254\.             ]]; then echo "LINK-LOCAL (APIPA)"
     elif [[ "$ip" =~ ^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\. ]]; then echo "SHARED (CGNAT RFC6598)"
-    elif [[ "$ip" =~ ^198\.51\.100\.|^203\.0\.113\.|^192\.0\.2\. ]]; then echo "DOCUMENTATION (TEST)"
+    elif [[ "$ip" =~ ^(198\.51\.100\.|203\.0\.113\.|192\.0\.2\.) ]]; then echo "DOCUMENTATION (TEST)"
     elif [[ "$ip" =~ ^224\.                  ]]; then echo "MULTICAST"
     elif [[ "$ip" =~ ^240\.                  ]]; then echo "RESERVED (Class E)"
     elif [[ "$ip" == "255.255.255.255"       ]]; then echo "BROADCAST"
@@ -131,14 +139,14 @@ NAT widely required|NAT not needed
 TABLE
 
     section "System IPv4 Addresses"
-    ip -4 addr show 2>/dev/null | grep -v "^[0-9]" | grep "inet " | while read -r _ cidr _ _ _ iface; do
+    ip -4 -o addr show | while read -r _ iface _ cidr _; do
         local ip="${cidr%/*}"
         printf "  ${LABEL}%-12s${NC} ${WHITE}%-18s${NC} ${MUTED}%s${NC}\n" \
             "$iface" "$cidr" "($(classify_ip "$ip"))"
     done
 
     section "System IPv6 Addresses"
-    ip -6 addr show 2>/dev/null | grep "inet6" | while read -r _ addr scope; do
+    ip -6 -o addr show | while read -r _ iface _ addr _ scope _; do
         printf "  ${CYAN}%-40s${NC} ${MUTED}%s${NC}\n" "$addr" "$scope"
     done
 
@@ -155,7 +163,11 @@ TABLE
     ip -6 route show | sed 's/^/  /'
     echo
     echo -e "${INFO}Listening IPv6 services:${NC}"
-    ss -ltn | grep "::" | sed 's/^/  /'
+    if cmd_exists ss; then
+        ss -ltn6
+    else
+        status_line neutral "ss not installed"
+    fi
     echo
     echo -e "${WARNING}IPv6 often bypasses IPv4 firewall rules${NC}"
 }
@@ -182,7 +194,12 @@ ip_geolocation() {
 
     read -rp "Enter IP: " ip
 
-    curl -s "http://ip-api.com/json/$ip" | \
+    if ! is_valid_ip "$ip"; then
+        log_warning "Invalid IP"
+        return
+    fi
+
+    curl -s --max-time 5 https://ip-api.com/json/$ip | \
         grep -E '"country"|"regionName"|"city"|"isp"' | sed 's/[",]//g' | sed 's/^/  /'
 }
 
@@ -197,7 +214,15 @@ reverse_dns_check() {
     fi
 
     local ptr
-    ptr=$(dig +short -x "$ip")
+
+    if cmd_exists dig; then
+        ptr=$(dig +short -x "$ip")
+    elif cmd_exists host; then
+        ptr=$(host "$ip" | awk '{print $5}' | sed 's/\.$//')
+    else
+        log_warning "No DNS lookup tool available"
+        return
+    fi
 
     if [[ -z "$ptr" ]]; then
         status_line neutral "No PTR record found"
@@ -205,7 +230,11 @@ reverse_dns_check() {
         kv "PTR Record" "$ptr"
 
         echo -e "${INFO}Forward resolving PTR...${NC}"
-        dig +short "$ptr" | sed 's/^/  /'
+        if cmd_exists dig; then
+            dig +short "$ptr"
+        elif cmd_exists host; then
+            host "$ptr"
+        fi
     fi
 }
 
@@ -284,7 +313,7 @@ subnet_overlap_check() {
     fi
 
     local n1
-    n1=$(subnet_details "$c1" | grep Network | awk '{print $2}')
+    n1=$(subnet_details "$c1" | awk -F': *' '/Network/ {print $2}')
     local n2
     n2=$(subnet_details "$c2" | grep Network | awk '{print $2}')
 
@@ -318,7 +347,7 @@ check_ip_types() {
 INFO
 
     section "Classify This System's Addresses"
-    ip -4 addr show 2>/dev/null | grep "inet " | while read -r _ cidr _ _ _ iface; do
+    ip -4 -o addr show | while read -r _ iface _ cidr _; do
         local ip="${cidr%/*}"
         local class
         class=$(classify_ip "$ip")
@@ -369,11 +398,13 @@ INFO
 
     section "NAT/iptables Status"
     if cmd_exists iptables; then
-        if sudo iptables -t nat -L -n 2>/dev/null | grep -qE "MASQUERADE|SNAT|DNAT"; then
+        if sudo -n iptables -t nat -L -n 2>/dev/null | grep -qE "MASQUERADE|SNAT|DNAT"; then
             status_line ok "NAT/masquerade rules detected"
             echo
             echo -e "${INFO}NAT rules:${NC}"
-            sudo iptables -t nat -L -n -v 2>/dev/null | grep -v "^Chain\|^target\|^$" | head -20 | sed 's/^/  /'
+            sudo -n iptables -t nat -L -n -v 2>/dev/null | grep -v "^Chain\|^target\|^$" | head -20 | sed 's/^/  /'
+        elif cmd_exists nft; then
+            nft list ruleset | grep -E "snat|dnat|masquerade"
         else
             status_line neutral "No NAT rules in iptables (this host is not a NAT router)"
         fi
@@ -477,7 +508,7 @@ INFO
     section "ARP Watch (5 seconds)"
     if cmd_exists tcpdump; then
         echo -e "  ${MUTED}Capturing ARP packets for 5 seconds (requires sudo)...${NC}"
-        sudo timeout 5 tcpdump -ql -e arp 2>/dev/null \
+        sudo -n timeout 5 tcpdump -ql -e arp 2>/dev/null \
             | grep -v "^tcpdump" | head -20 | sed 's/^/  /' \
             || echo -e "  ${MUTED}ARP capture not available (no sudo or tcpdump)${NC}"
     else

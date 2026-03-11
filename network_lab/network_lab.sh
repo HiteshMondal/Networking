@@ -2,17 +2,19 @@
 
 # /network_lab/network_lab.sh
 # Network Lab controller and menu handler
-chmod -R +x network_lab
+# Work on all Linux computers independent of distro
+
 # DOUBLE SOURCE GUARD
 [[ -n "${_NETWORK_LAB_LOADED:-}" ]] && return 0
 _NETWORK_LAB_LOADED=1
 
 # PATH RESOLUTION
 NETWORK_LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-: "${PROJECT_ROOT:="$(dirname "$NETWORK_LAB_DIR")"}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(dirname "$NETWORK_LAB_DIR")}"
 
-NETWORK_LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$NETWORK_LAB_DIR")"
+shopt -s nullglob
+chmod +x "$NETWORK_LAB_DIR"/*.sh "$NETWORK_LAB_DIR"/*/*.sh
+shopt -u nullglob
 
 source "$PROJECT_ROOT/lib/init.sh"
 
@@ -33,13 +35,13 @@ _network_lab_launch() {
         return 1
     fi
 
-    if [[ ! -r "$full_path" ]]; then
-        log_error "${label}: script is not readable (check permissions)"
+    if [[ ! -f "$full_path" || ! -x "$full_path" ]]; then
+        log_error "${label}: script is not executable (check permissions)"
         return 1
     fi
 
     local safe_label
-    safe_label=$(echo "$label" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_')
+    safe_label=$(echo "$label" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
 
     local log_file="${LOG_DIR}/${safe_label}_$(date '+%Y%m%d_%H%M%S').log"
 
@@ -61,16 +63,12 @@ _network_lab_launch() {
 
     {
         echo "=== ${label} started at $(date) ==="
-
         "$full_path"
-        local rc=$?
-
+        rc=$?
         echo "=== ${label} completed at $(date) with exit code ${rc} ==="
-        return $rc
-
     } 2>&1 | tee -a "$log_file"
 
-    local exit_code="${PIPESTATUS[0]}"
+    exit_code="${PIPESTATUS[0]}"
 
     echo
     echo -e "  ${DARK_GRAY}$(printf '%*s' 50 '' | tr ' ' '-')${NC}"

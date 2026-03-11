@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # /network_lab/diagnostics/packet_analysis.sh
+# Work on all Linux computers independent of distro
 # Topic: Packet Analysis & Protocol Dissection — Interactive Lab
 # Covers: Ethernet/IP/TCP/UDP headers, Wireshark filters, traffic baselining, PCAP analysis
 

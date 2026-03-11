@@ -2,7 +2,7 @@
 
 # Networking & Cybersecurity Automation Toolkit
 
-**A modular Bash-based suite for network diagnostics, security hardening, forensic collection, and real-time monitoring — with a live web dashboard.**
+**A modular Bash-based suite for network diagnostics, security hardening, forensic collection, threat detection, and real-time monitoring — with a live web dashboard.**
 
 [![Bash](https://img.shields.io/badge/Shell-Bash_5.x-4EAA25?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Python](https://img.shields.io/badge/Dashboard-Python_3.8+-3776AB?logo=python&logoColor=white)](https://python.org)
@@ -19,38 +19,39 @@
 - [Project Structure](#project-structure)
 - [Features](#features)
 - [Quick Start](#quick-start)
-- [Scripts Reference](#scripts-reference)
-- [Tools Reference](#tools-reference)
+- [Security Modules Reference](#security-modules-reference)
+- [Network Lab Reference](#network-lab-reference)
 - [Dashboard](#dashboard)
 - [Configuration](#configuration)
 - [Output & Logs](#output--logs)
 - [Requirements](#requirements)
+- [Security Notes](#security-notes)
 
 ---
 
 ## Overview
 
-The **Networking & Cybersecurity Automation Toolkit** is a collection of Bash scripts and tools designed to automate common network analysis, security auditing, and forensic tasks on Linux systems. All executions are logged with timestamps, and results are surfaced through an interactive web dashboard with live tailing, search, social sharing, and real-time system resource monitoring.
+The **Networking & Cybersecurity Automation Toolkit** is a collection of Bash scripts and tools designed to automate common network analysis, security auditing, threat detection, and forensic tasks on Linux systems. All executions are logged with timestamps, and results are surfaced through an interactive web dashboard with live tailing, full-text search, and real-time system resource monitoring.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         run.sh                              │
-│              (unified entry point / menu)                   │
-└───────────┬────────────────────────┬────────────────────────┘
-            │                        │
-    ┌───────▼───────┐       ┌────────▼──────────┐
-    │    scripts/   │       │      tools/        │
-    │  (automation) │       │  (interactive CLI) │
-    └───────┬───────┘       └────────┬───────────┘
-            │                        │
-    ┌───────▼────────────────────────▼───────────┐
-    │          logs/  &  output/                  │
-    │      (structured, timestamped output)       │
-    └────────────────────┬────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│                     run.sh                            │
+│          (unified entry point / main menu)            │
+└──────────┬──────────────────────────┬─────────────────┘
+           │                          │
+   ┌───────▼────────┐       ┌─────────▼───────────────┐
+   │   modules/     │       │     network_lab/        │
+   │ (security ops) │       │ (education & analysis)  │
+   └───────┬────────┘       └─────────┬───────────────┘
+           │                          │
+   ┌───────▼──────────────────────────▼───────────┐
+   │             logs/  &  output/                │
+   │       (structured, timestamped output)       │
+   └─────────────────────┬────────────────────────┘
                          │
               ┌──────────▼──────────┐
-              │  dashboard/         │
-              │  (live web UI)      │
+              │     dashboard/      │
+              │   (live web UI)     │
               └─────────────────────┘
 ```
 
@@ -60,76 +61,95 @@ The **Networking & Cybersecurity Automation Toolkit** is a collection of Bash sc
 
 ```
 networking_cybersecurity/
-│
-├── run.sh                        # Main entry point — interactive menu
-├── README.md                     # This file
-│
+├── run.sh                        # Main entry point
+├── install.sh                    # Dependency installer (multi-distro)
 ├── config/
-│   └── settings.conf             # Global configuration (paths, flags, defaults)
-│
+│   └── settings.conf             # Global configuration
 ├── lib/
-│   ├── colors.sh                 # ANSI colour definitions for terminal output
-│   └── functions.sh              # Shared helper functions used by all scripts/tools
-│
-├── scripts/                      # Automated security & network scripts
-│   ├── run_script.sh             # Script runner with logging wrapper
-│   ├── detect_suspicious_net_linux.sh   # Suspicious network connection detection
-│   ├── forensic_collect.sh              # Forensic artifact collection
-│   ├── revert_security.sh               # Revert hardening changes
-│   ├── secure_system.sh                 # System hardening automation
-│   ├── system_info.sh                   # System info & inventory report
-│   └── web_recon.sh                     # Web reconnaissance & enumeration
-│
-├── tools/                        # Interactive educational/diagnostic tools
-│   ├── tools.sh                  # Tool launcher / menu
-│   ├── core_protocols.sh         # TCP/IP, DNS, HTTP protocol analysis
-│   ├── ip_addressing.sh          # IP/CIDR/subnet calculator & analyser
-│   ├── network_master.sh         # All-in-one network diagnostics suite
-│   ├── network_tools.sh          # Ping, traceroute, port scan utilities
-│   ├── networking_basics.sh      # Network fundamentals & diagnostics
-│   ├── security_fundamentals.sh  # Encryption, hashing, key generation demos
-│   └── switching_routing.sh      # Switching, VLAN, routing analysis
-│
-├── logs/                         # Auto-generated execution logs
-│   └── <script>_<YYYYMMDD_HHMMSS>.log
-│
-├── output/                       # Script-generated output files
-│   └── <category>_<timestamp>/   # Grouped by run (keys, reports, captures)
-│
-└── dashboard/                    # Real-time web dashboard
-    ├── index.html                # Dashboard UI
-    ├── app.js                    # Frontend logic
-    ├── style.css                 # Styling & theming
-    ├── server.py                 # Python HTTP API server
-    └── start_dashboard.sh        # Dashboard launcher script
+│   ├── colors.sh                 # Terminal colour definitions
+│   ├── functions.sh              # Shared utility functions
+│   ├── init.sh                   # Library bootstrap
+│   └── logging.sh                # Logging helpers
+├── modules/
+│   ├── run_modules.sh            # Module menu & execution handler
+│   ├── analysis/
+│   │   ├── cloud_exposure_audit.sh
+│   │   ├── detect_suspicious_net_linux.sh
+│   │   └── log_analysis.sh
+│   ├── forensics/
+│   │   ├── forensic_collect.sh
+│   │   └── system_info.sh
+│   ├── reconnaissance/
+│   │   └── web_recon.sh
+│   ├── system_security/
+│   │   └── secure_system.sh
+│   └── threat_detection/
+│       ├── data_exfil_detect.sh
+│       ├── lateral_movement_detect.sh
+│       └── malware_analysis.sh
+├── network_lab/
+│   ├── network_lab.sh            # Network Lab controller
+│   ├── diagnostics/
+│   │   ├── ip_addressing.sh
+│   │   └── packet_analysis.sh
+│   ├── networking/
+│   │   ├── core_protocols.sh
+│   │   ├── network_hardening.sh
+│   │   ├── networking_basics.sh
+│   │   ├── network_master.sh
+│   │   ├── network_tools.sh
+│   │   └── switching_routing.sh
+│   ├── security/
+│   │   ├── firewall_ids.sh
+│   │   ├── security_fundamentals.sh
+│   │   ├── threat_intelligence.sh
+│   │   └── wireless_security.sh
+│   └── output/
+├── dashboard/
+│   ├── start_dashboard.sh
+│   ├── server.py                 # Python HTTP API server
+│   ├── index.html                # Dashboard frontend
+│   ├── app.js                    # Dashboard JS logic
+│   └── style.css                 # Dashboard styles
+├── logs/                         # Auto-generated timestamped logs
+└── output/                       # Script output artifacts
 ```
 
 ---
 
 ## Features
 
-### Scripts (Automated Tasks)
+### Security Modules
 
-| Feature | Description |
+| Module | Description |
 |---|---|
 | 🔍 **Suspicious Network Detection** | Scans active connections for anomalous ports, foreign IPs, and unexpected listeners |
-| 🔒 **System Hardening** | Applies firewall rules, disables unused services, locks down SSH, and enforces password policies |
-| ↩️ **Revert Hardening** | Safely rolls back all changes applied by `secure_system.sh` |
+| 🔒 **System Hardening** | Applies firewall rules, disables unused services, locks down SSH, enforces password policies |
 | 💻 **System Inventory** | Collects OS version, hardware, users, running services, open ports, and disk info |
 | 🕵️ **Forensic Collection** | Captures volatile data — processes, connections, ARP cache, login history, cron jobs |
-| 🌐 **Web Recon** | Performs passive and active web reconnaissance including DNS, headers, and directory enumeration |
+| 🌐 **Web Recon** | Passive and active reconnaissance including DNS, headers, and directory enumeration |
+| 🦠 **Malware Analysis** | Static and dynamic analysis of suspicious files and processes |
+| 🔀 **Lateral Movement Detection** | Analyses authentication logs for lateral movement indicators |
+| 📋 **Log Analysis** | Parses system logs for threat indicators and anomalies |
+| ☁️ **Cloud Exposure Audit** | Probes cloud metadata services for misconfigurations and exposure |
+| 📤 **Data Exfiltration Detection** | Scans for data exfiltration patterns in network traffic and logs |
 
-### Tools (Interactive CLI)
+### Network Lab
 
 | Tool | Description |
 |---|---|
-| 🌐 **Network Tools** | Ping, traceroute, DNS lookup, Whois, port scanning |
-| 📡 **Core Protocols** | Analyse TCP/IP, UDP, ICMP, DNS, HTTP in real-time |
-| 🔢 **IP Addressing** | Subnet calculator, CIDR breakdown, IP class identifier |
-| 🗺️ **Network Master** | Comprehensive suite: discovery, scanning, bandwidth, latency |
-| 📖 **Networking Basics** | Guided diagnostics for connectivity, routing, and interfaces |
-| 🔐 **Security Fundamentals** | RSA/ECC key generation, AES encryption, SHA hashing, digital signatures |
-| 🔀 **Switching & Routing** | VLAN info, routing table analysis, ARP inspection |
+| 🌐 **Network Tools** | Interfaces, ping, traceroute, DNS lookup, port scanning |
+| 📡 **Core Protocols** | Analyse TCP/UDP, HTTP, DNS, ICMP in real-time |
+| 🔢 **IP Addressing** | Subnetting, CIDR breakdown, NAT, ARP |
+| 📦 **Packet Analysis** | Headers, Wireshark filters, PCAP |
+| 🗺️ **Network Master** | Comprehensive suite — discovery, scanning, bandwidth, latency |
+| 📖 **Networking Basics** | OSI model, TCP/IP, switching guided diagnostics |
+| 🔀 **Switching & Routing** | VLANs, MAC tables, RIP/OSPF/BGP |
+| 🔐 **Security Fundamentals** | RSA/ECC key gen, AES encryption, SHA hashing, digital signatures |
+| 📶 **Wireless Security** | WiFi standards, WPA3, attack vectors |
+| 🧱 **Firewall & IDS/IPS** | iptables, nftables, Snort configuration |
+| 🛡️ **Network Hardening** | SSH hardening, VPN, Zero Trust |
+| 🧠 **Threat Intelligence** | OSINT, CVE lookup, MITRE ATT&CK |
 
 ### Dashboard
 
@@ -141,47 +161,50 @@ networking_cybersecurity/
 | ⚠️ **Alerts** | Configurable warn/critical thresholds with optional email notifications |
 | 📁 **Log Viewer** | In-browser log viewer with live tail (3-second polling) |
 | 🔎 **Full-Text Search** | Search across all log files with match highlighting |
-| ↗️ **Social Sharing** | Share reports to Twitter/X, LinkedIn, Reddit or via email |
 | 📤 **Export** | Download a full plain-text report of all stats, history, and files |
 
 ---
 
 ## Quick Start
 
-### 1. Run the interactive menu
+### 1. Install dependencies
 
 ```bash
-./run.sh
+sudo ./install.sh
 ```
 
-### 2. Launch the dashboard
+### 2. Run the interactive menu
+
+```bash
+sudo ./run.sh
+```
+
+### 3. Launch the dashboard
 
 ```bash
 cd dashboard
-./start_dashboard.sh
-# Then open http://localhost:8000 in your browser
-```
-Or run the server directly:
-```bash
-python3 dashboard/server.py
+python3 server.py
+# Open http://localhost:8000
 ```
 
-> **Optional:** Install `psutil` for live system resource monitoring in the dashboard:
+> **Optional:** Install `psutil` for live system resource monitoring:
 > ```bash
 > pip install psutil --break-system-packages
 > ```
 
 ---
 
-## Scripts Reference
+## Security Modules Reference
 
-All scripts are invoked through `run.sh` or directly via `scripts/run_script.sh`. Each execution produces a timestamped log in `logs/`.
+All modules are invoked through `run.sh → Security Modules` or directly. Each execution produces a timestamped log in `logs/` and any output artifacts in `output/`.
 
 ### `detect_suspicious_net_linux.sh`
 Analyses active network connections using `ss`, `netstat`, and `/proc/net`. Flags:
-- Connections to unusual ports (non-standard high ports, known malware ports)
+- Connections to unusual or known-malicious ports
 - Processes with unexpected listening sockets
-- Foreign IP connections not in a whitelist
+- Foreign IP connections outside a whitelist
+
+**Timeout:** 800s
 
 ### `secure_system.sh`
 Applies a layered hardening checklist:
@@ -189,10 +212,8 @@ Applies a layered hardening checklist:
 - Hardens `/etc/ssh/sshd_config` (disables root login, enforces key auth)
 - Disables unnecessary services via `systemctl`
 - Sets password aging policies via `chage` / `pam`
-- Saves a revert manifest for `revert_security.sh`
 
-### `revert_security.sh`
-Reads the revert manifest created by `secure_system.sh` and restores all previous settings — safe to run after testing a hardened environment.
+**Timeout:** 200s
 
 ### `system_info.sh`
 Generates a structured system inventory including:
@@ -200,6 +221,8 @@ Generates a structured system inventory including:
 - CPU, memory, disk layout
 - Running services and open ports
 - Local user accounts and sudo privileges
+
+**Timeout:** 200s
 
 ### `forensic_collect.sh`
 Captures volatile system state for incident response:
@@ -212,31 +235,65 @@ Captures volatile system state for incident response:
 
 Output is saved as a structured report in `output/`.
 
+**Timeout:** 400s
+
 ### `web_recon.sh`
-Performs web target reconnaissance:
+Performs web target reconnaissance (prompts for target domain/URL):
 - DNS record enumeration (A, MX, TXT, NS)
 - HTTP header analysis
 - Basic directory/path enumeration
 - Robots.txt and sitemap discovery
 
+**Timeout:** 200s
+
+### `malware_analysis.sh`
+Performs static and dynamic analysis of suspicious files and running processes.
+
+**Timeout:** 600s
+
+### `lateral_movement_detect.sh`
+Analyses authentication logs for signs of lateral movement — unusual login chains, privilege escalation patterns, and credential abuse.
+
+**Timeout:** 300s
+
+### `log_analysis.sh`
+Parses system logs for threat indicators: failed auth attempts, sudo abuse, unusual cron activity, and more.
+
+**Timeout:** 300s
+
+### `cloud_exposure_audit.sh`
+Probes cloud metadata services (AWS, GCP, Azure) for misconfigurations and unintended exposure.
+
+**Timeout:** 200s
+
+### `data_exfil_detect.sh`
+Scans for data exfiltration patterns in active network connections and log history.
+
+**Timeout:** 300s
+
 ---
 
-## Tools Reference
+## Network Lab Reference
 
-Tools are interactive and menu-driven. Launch with `./run.sh` → Tools, or directly:
+Accessible via `run.sh → Network Lab`. All tools are interactive and run locally — no data leaves the machine.
 
-```bash
-bash tools/network_tools.sh
-bash tools/security_fundamentals.sh
-# etc.
-```
+### Diagnostics & Live Analysis
 
-### `security_fundamentals.sh`
-Hands-on cryptography demos — all operations run locally:
+- **Network Tools** — Ping sweep, traceroute, DNS lookup, Whois, port scan via `nmap`
+- **Core Protocols** — Live TCP/UDP, HTTP, DNS, ICMP analysis
+- **IP Addressing** — Subnet calculator, CIDR breakdown, NAT/ARP inspection
+- **Packet Analysis** — Header dissection, Wireshark filter builder, PCAP review
+
+### Education & Reference
+
+- **Network Master** — All networking topics in one comprehensive module
+- **Networking Basics** — OSI model walkthroughs, TCP/IP stack, switching concepts
+- **Switching & Routing** — VLAN info, routing table analysis, RIP/OSPF/BGP reference
+- **Security Fundamentals** — Hands-on cryptography demos, all run locally:
 
 ```
 ┌─────────────────────────────────────┐
-│  Security Fundamentals Tool         │
+│  Security Fundamentals              │
 ├─────────────────────────────────────┤
 │  1. RSA key generation & encrypt    │
 │  2. ECC key pair generation         │
@@ -247,39 +304,35 @@ Hands-on cryptography demos — all operations run locally:
 └─────────────────────────────────────┘
 ```
 
-Output files (keys, encrypted blobs, signatures) are written to `output/security_<timestamp>/`.
+### Advanced Security
 
-### `network_tools.sh`
-Wraps common network utilities in a guided interface:
-- `ping` with configurable count and interval
-- `traceroute` / `tracepath`
-- `nmap` port scan (if installed)
-- DNS lookup via `dig` / `nslookup`
-- Interface and routing info
+- **Wireless Security** — WiFi standards, WPA2/WPA3, common attack vectors
+- **Firewall & IDS/IPS** — iptables/nftables rule building, Snort rule reference
+- **Network Hardening** — SSH lockdown, VPN setup, Zero Trust principles
+- **Threat Intelligence** — OSINT techniques, CVE lookup, MITRE ATT&CK framework
 
 ---
 
 ## Dashboard
 
-The dashboard is a self-contained Python HTTP server + vanilla JS frontend requiring **no npm, no build step**.
+The dashboard is a self-contained Python HTTP server + vanilla JS frontend. **No npm, no build step required.**
 
 ### Starting
 
 ```bash
-cd dashboard
-python3 server.py
-# Listening on http://localhost:8000
-```
+# Via run.sh menu (option 3)
+sudo ./run.sh
 
-Custom port:
+# Or directly
+cd dashboard && python3 server.py
 
-```bash
+# Custom port
 DASHBOARD_PORT=9090 python3 server.py
 ```
 
-### Email Notifications (SMTP)
+Then open **http://localhost:8000** in your browser.
 
-Configure via environment variables before starting the server:
+### Email Notifications (SMTP)
 
 ```bash
 export SMTP_HOST=smtp.gmail.com
@@ -290,7 +343,7 @@ export SMTP_PASS=your_app_password
 python3 server.py
 ```
 
-Then use the **⚠ Alerts** button in the dashboard header to set thresholds and enable automatic email alerts when CPU/Memory/Disk hit critical levels.
+Use the **⚠ Alerts** button in the dashboard to set CPU/Memory/Disk thresholds and enable automatic email alerts.
 
 ### API Endpoints
 
@@ -298,7 +351,7 @@ Then use the **⚠ Alerts** button in the dashboard header to set thresholds and
 |---|---|---|
 | `/api/dashboard-data` | GET | Full dashboard payload (logs, outputs, history, stats) |
 | `/api/metrics` | GET | Success rate, avg duration, category breakdown, disk usage |
-| `/api/system-stats` | GET | Live CPU, Memory, Disk, Network (requires psutil) |
+| `/api/system-stats` | GET | Live CPU, Memory, Disk, Network (requires `psutil`) |
 | `/api/file` | GET | Serve a log or output file (`?dir=logs&name=file.log`) |
 | `/api/tail` | GET | Last N lines + mtime for live tailing |
 | `/api/search` | GET | Full-text search across all log files |
@@ -312,14 +365,13 @@ Then use the **⚠ Alerts** button in the dashboard header to set thresholds and
 Edit `config/settings.conf` to adjust global defaults:
 
 ```bash
-# Example settings.conf options
 LOG_DIR="../logs"
 OUTPUT_DIR="../output"
 DASHBOARD_PORT=8000
 MAX_LOG_LINES=10000
 ```
 
-Shared library functions are in `lib/functions.sh` — source this in any custom script:
+Shared library functions are in `lib/functions.sh` — source in any custom script:
 
 ```bash
 source "$(dirname "$0")/../lib/functions.sh"
@@ -332,33 +384,20 @@ source "$(dirname "$0")/../lib/colors.sh"
 
 ### Log Files
 
-Every script run creates a log at `logs/<script>_<YYYYMMDD_HHMMSS>.log`:
-
-```
-logs/
-├── network_tools_20260218_144030.log
-├── security_fundamentals_20260218_144124.log
-└── networking_basics_20260218_144142.log
-```
-
-Logs capture: start time, command output, exit code, and completion timestamp. The dashboard parses these to determine status (success / warning / error) and duration.
+Every script run creates a timestamped log at `logs/<script>_<YYYYMMDD_HHMMSS>.log`. Logs capture: start time, full command output, exit code, and completion timestamp. The dashboard parses these to determine run status (success / warning / error) and duration.
 
 ### Output Files
 
-Scripts that produce artifacts write to `output/<category>_<timestamp>/`:
+Scripts that produce artifacts write to `output/<category>_<timestamp>/`. Example for `security_fundamentals.sh`:
 
 ```
-output/security_20260218_144125/
-├── rsa_private.pem / rsa_public.pem    # RSA key pair
-├── ecc_private.pem / ecc_public.pem    # ECC key pair
-├── rsa_plain.txt / rsa_cipher.bin      # Encryption demo
-├── rsa_decrypted.txt                   # Decryption result
-├── aes_data.txt / aes_data.enc         # AES encrypt/decrypt
-├── aes_data.dec
-├── secret.txt / secret.enc / secret.dec
-├── doc_to_sign.txt / doc.sig           # Digital signature demo
-├── doc.sha256 / integrity_test.sha256  # Integrity checks
-└── doc.txt / doc_tampered.txt          # Tamper detection
+output/security_20260310_144125/
+├── rsa_private.pem / rsa_public.pem
+├── ecc_private.pem / ecc_public.pem
+├── rsa_plain.txt / rsa_cipher.bin / rsa_decrypted.txt
+├── aes_data.txt / aes_data.enc / aes_data.dec
+├── doc_to_sign.txt / doc.sig
+└── doc.sha256 / integrity_test.sha256
 ```
 
 ---
@@ -369,40 +408,39 @@ output/security_20260218_144125/
 
 | Requirement | Notes |
 |---|---|
-| Linux (Debian/Ubuntu/Arch) | Tested on Ubuntu 24.04 |
+| Linux | Debian/Ubuntu, Arch, RHEL/Fedora, openSUSE — all supported |
 | Bash 5.x | `bash --version` |
 | Python 3.8+ | For dashboard server |
-| Standard tools | `ss`, `ip`, `dig`, `curl`, `openssl` |
-| Optional: `nmap` | For port scanning features |
-| Optional: `psutil` | `pip install psutil --break-system-packages` — for system stats in dashboard |
+| Core tools | `ss`, `ip`, `dig`, `curl`, `openssl` |
+| `nmap` | Optional — for port scanning features |
+| `psutil` | Optional — `pip install psutil --break-system-packages` — for dashboard system stats |
 
 ### Permissions
 
-Some scripts require elevated privileges:
+Some modules require elevated privileges:
 
 ```bash
-# System hardening and forensic collection may need sudo
-sudo ./scripts/secure_system.sh
-sudo ./scripts/forensic_collect.sh
-```
+sudo ./run.sh
 
-Network scanning tools (`nmap`) may require `sudo` or raw socket capabilities.
+# Or run individual scripts directly
+sudo ./modules/system_security/secure_system.sh
+sudo ./modules/forensics/forensic_collect.sh
+```
 
 ---
 
 ## Security Notes
 
-- All scripts operate **locally** — no data is sent to external services unless you explicitly configure SMTP or use the social share feature.
-- The dashboard server binds to `localhost` by default. Do **not** expose it publicly without authentication.
+- All scripts operate **locally** — no data is sent to external services unless you explicitly configure SMTP.
+- The dashboard server binds to `localhost` by default. **Do not expose it publicly without authentication.**
 - Forensic and hardening scripts should be reviewed before running in production environments.
 - RSA/ECC keys and encrypted files generated by `security_fundamentals.sh` are for **demonstration purposes only**.
+- The `run_all_modules` option (option 11) executes every module sequentially — allow significant time and review timeouts in `run_modules.sh`.
 
 ---
 
-## 👨‍💻 Author
+## Author
 
-Hitesh Mondal 🔹 Developer & Cybersecurity Enthusiast 🔹 Focus areas: Networking • System Security • DevOps • Cloud Infrastructure
+**Hitesh Mondal** — Developer & Cybersecurity Enthusiast
 
-<div align="center">
-  
-</div>
+Focus areas: Networking • System Security • DevOps • Cloud Infrastructure

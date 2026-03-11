@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # /modules/threat_detection/lateral_movement_detect.sh
 # Lateral movement detection
+# Work on all Linux computers independent of distro
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
@@ -57,12 +58,13 @@ if [ -n "$AUTH_LOG" ]; then
 set +o pipefail
         echo "=== Failed SSH login attempts (top 30 by IP) ==="
         grep "Failed password" "$AUTH_LOG" 2>>"$ERR_DIR/s1_auth.err" \
-            | grep -oP 'from \K[\d.]+' | sort | uniq -c | sort -rn | head -30
-
+            | awk '/Failed password/ {for(i=1;i<=NF;i++) if($i=="from") print $(i+1)}' \
+            | sort | uniq -c | sort -rn | head -30
         echo
         echo "=== Failed login usernames (top 20) ==="
         grep "Failed password" "$AUTH_LOG" 2>>"$ERR_DIR/s1_auth.err" \
-            | grep -oP 'for \K\S+' | sort | uniq -c | sort -rn | head -20
+            | awk '/Failed password/ {for(i=1;i<=NF;i++) if($i=="for") print $(i+1)}' \
+            | sort | uniq -c | sort -rn | head -20
 set -o pipefail
     } > "$OUTPUT_DIR/failed_logins.txt"
     _section_err "Section 1 failed logins" "$ERR_DIR/s1_auth.err"
@@ -127,9 +129,11 @@ set +o pipefail
         _failed_tmp=$(mktemp)
         _accepted_tmp=$(mktemp)
         { grep "Failed password" "$AUTH_LOG" 2>>"$ERR_DIR/s1_spray.err" || true; } \
-            | grep -oP 'from \K[\d.]+' | sort -u > "$_failed_tmp"
+            | awk '{for(i=1;i<=NF;i++) if($i=="from") print $(i+1)}' \
+            | sort -u > "$_failed_tmp"
         { grep "Accepted " "$AUTH_LOG" 2>>"$ERR_DIR/s1_spray.err" || true; } \
-            | grep -oP 'from \K[\d.]+' | sort -u > "$_accepted_tmp"
+            | awk '{for(i=1;i<=NF;i++) if($i=="from") print $(i+1)}' \
+            | sort -u > "$_accepted_tmp"
         comm -12 "$_failed_tmp" "$_accepted_tmp"
         rm -f "$_failed_tmp" "$_accepted_tmp"
 set -o pipefail
@@ -156,11 +160,12 @@ set -o pipefail
         "count=$offhours_count events outside 07:00-19:00"
 
     { grep "Accepted " "$AUTH_LOG" 2>"$ERR_DIR/s1_accepted.err" || true; } \
-        | grep -oP 'from \K[\d.]+' | sort | uniq -c | sort -rn \
+        | awk '{for(i=1;i<=NF;i++) if($i=="from") print $(i+1)}' \
+        | sort | uniq -c | sort -rn \
         > "$OUTPUT_DIR/accepted_login_ips.txt" || true
     _section_err "Section 1 accepted IPs" "$ERR_DIR/s1_accepted.err"
 
-    grep "Accepted.*root\|session opened.*root" "$AUTH_LOG" 2>"$ERR_DIR/s1_root.err" \
+    grep -E "Accepted.*root|session opened.*root" "$AUTH_LOG" 2>"$ERR_DIR/s1_root.err" \
         > "$OUTPUT_DIR/root_logins.txt" || true
     _section_err "Section 1 root logins" "$ERR_DIR/s1_root.err"
 
@@ -321,9 +326,11 @@ fi
 echo "[*] Searching for exposed credential files..."
 find /home /root /var/www /opt /etc -type f 2>"$ERR_DIR/s3_credfiles.err" \
     \( -name ".netrc" -o -name ".pgpass" -o -name "credentials" \
-       -o -name "*.credentials" -o -name ".aws/credentials" \
-       -o -name ".docker/config.json" -o -name "*.kubeconfig" \
-       -o -name "kubeconfig" -o -name "*.token" \) \
+       -o -path "*/.aws/credentials" \
+       -o -name ".docker/config.json" \
+       -o -name "*.kubeconfig" \
+       -o -name "kubeconfig" \
+       -o -name "*.token" \) \
     -ls >> "$OUTPUT_DIR/credential_files.txt" \
     || _note_err "credential file search" $?
 _section_err "Section 3 credential files" "$ERR_DIR/s3_credfiles.err"
@@ -373,7 +380,7 @@ echo "[*] Checking for network share access..."
 
 {
     echo "=== Network mounts ==="
-    mount 2>>"$ERR_DIR/s4_shares.err" | grep -E 'type (nfs|cifs|smbfs|glusterfs|cephfs)' \
+    mount 2>>"$ERR_DIR/s4_shares.err" | grep -E 'type (nfs|cifs|smbfs|glusterfs|cephfs)' || true \
         || echo "(none)"
 
     echo
@@ -397,7 +404,7 @@ _section_err "Section 4 network mounts" "$ERR_DIR/s4_shares.err"
 
     echo
     echo "=== Samba/CIFS client processes ==="
-    pgrep -a -x "smbd\|nmbd\|winbindd\|smbclient\|mount\.cifs" 2>>"$ERR_DIR/s4_smb.err" \
+    pgrep -af 'smbd|nmbd|winbindd|smbclient|mount\.cifs' 2>>"$ERR_DIR/s4_smb.err" \
         || echo "(none)"
 
 } > "$OUTPUT_DIR/smb_activity.txt"
@@ -513,7 +520,7 @@ echo "[*] Checking for process injection indicators..."
 
     echo
     echo "=== /proc/*/status TracerPid (non-zero = being traced) ==="
-    grep -l "TracerPid:[^0   ]" /proc/*/status 2>>"$ERR_DIR/s7_inject.err" \
+    awk '/TracerPid:/ && $2 != 0 {print FILENAME}' /proc/*/status 2>>"$ERR_DIR/s7_inject.err" \
     | while IFS= read -r s; do
         pid=$(echo "$s" | grep -oE '[0-9]+')
         exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo "unknown")
