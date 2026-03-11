@@ -170,12 +170,14 @@ networking_cybersecurity/
 ### 1. Install dependencies
 
 ```bash
+chmod +x install.sh
 sudo ./install.sh
 ```
 
 ### 2. Run the interactive menu
 
 ```bash
+chmod +x run.sh
 sudo ./run.sh
 ```
 
@@ -321,6 +323,7 @@ The dashboard is a self-contained Python HTTP server + vanilla JS frontend. **No
 
 ```bash
 # Via run.sh menu (option 3)
+chmod +x run.sh
 sudo ./run.sh
 
 # Or directly
