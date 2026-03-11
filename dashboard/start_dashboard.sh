@@ -10,7 +10,7 @@ if [[ -z "${BASH_VERSION}" ]]; then
 fi
 
 # Double-source guard (NOT exported)
-[[ -n "${_START_DASHBOARD_LOADED}" ]] && return 0
+[[ -n "${_START_DASHBOARD_LOADED:-}" ]] && return 0
 _START_DASHBOARD_LOADED=1
 
 # Path resolution

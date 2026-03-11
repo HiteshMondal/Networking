@@ -222,7 +222,7 @@ def _parse_legacy_log(path: Path) -> tuple[str, str]:
         status = "success"
 
     sm  = re.search(r"started at (.+?) ===", content)
-    em  = re.search(r"completed at (.+?) with", content)
+    em  = re.search(r"completed at (.+?) \(exit", content)
     dur = "N/A"
     if sm and em:
         for fmt in (

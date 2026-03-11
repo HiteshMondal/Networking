@@ -3,7 +3,7 @@
 # /lib/colors.sh
 # Centralized color & style definitions — Dark Operator palette
 # Double-source guard (NOT exported — prevents child process re-source issues)
-[[ -n "$_COLORS_LOADED" ]] && return 0
+[[ -n "${_COLORS_LOADED:-}" ]] && return 0
 _COLORS_LOADED=1
 
 #  RESET

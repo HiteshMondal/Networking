@@ -93,7 +93,7 @@ for f in "$ERR_DIR"/dns_*.err "$ERR_DIR/host.err" "$ERR_DIR/ns.err" "$ERR_DIR/wh
     _section_err "DNS enum $(basename "$f" .err)" "$f"
 done
 
-resolved_ip=$(dig +short "$TARGET" 2>/dev/null | grep -oE '^[0-9.]+' | head -1 || true)
+resolved_ip=$(dig +short "$TARGET" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1 || true)
 log_metric "resolved_ip" "${resolved_ip:-unresolved}" "label"
 [ -z "$resolved_ip" ] && log_finding "medium" "Target hostname did not resolve to an IP" \
     "target=$TARGET — DNS may be unreachable or target is offline"
@@ -121,7 +121,11 @@ curl -I --max-time 15 "https://$TARGET" > "$OUTPUT_DIR/curl_https_headers.txt" 2
 # Check for security-relevant response headers
 for hdr_file in "$OUTPUT_DIR/curl_http_headers.txt" "$OUTPUT_DIR/curl_https_headers.txt"; do
     [ -s "$hdr_file" ] || continue
-    proto=$(echo "$hdr_file" | grep -oE 'http[s]*')
+    case "$hdr_file" in
+    *https*) proto=https ;;
+    *http*)  proto=http ;;
+    *) proto=unknown ;;
+    esac
     grep -qiE 'Strict-Transport-Security' "$hdr_file" \
         || log_finding "low" "Missing HSTS header on $proto" "target=$TARGET"
     grep -qiE 'X-Frame-Options|Content-Security-Policy' "$hdr_file" \
@@ -161,7 +165,7 @@ if command -v masscan >/dev/null 2>&1; then
         || _note_err "masscan" $?
     _section_err "Section 4 masscan" "$ERR_DIR/masscan.err"
 
-    open_ports=$(grep -c "^open" "$OUTPUT_DIR/masscan.out" 2>/dev/null || echo 0)
+    open_ports=$(grep -cE '^open[[:space:]]' "$OUTPUT_DIR/masscan.out" 2>/dev/null || echo 0)
     log_metric "masscan_open_ports" "$open_ports" "count"
 fi
 
@@ -244,7 +248,7 @@ if command -v openssl >/dev/null 2>&1; then
         -noout -enddate 2>/dev/null | cut -d= -f2 || true)
     if [ -n "$expiry" ]; then
         log_metric "tls_cert_expiry" "$expiry" "date"
-        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || true)
+        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || gdate -d "$expiry" +%s 2>/dev/null || true)
         now_epoch=$(date +%s)
         if [ -n "$expiry_epoch" ] && [ "$expiry_epoch" -lt "$now_epoch" ]; then
             log_finding "high" "TLS certificate has expired" \
@@ -276,22 +280,24 @@ curl -sL --max-time 20 "https://$TARGET" > "$OUTPUT_DIR/page_https.html" 2>/dev/
 # Extract links and forms for further recon
 for html in "$OUTPUT_DIR/page_http.html" "$OUTPUT_DIR/page_https.html"; do
     [ -s "$html" ] || continue
-    proto=$(echo "$html" | grep -oE 'http[s]*')
+    case "$html" in
+    *https*) proto=https ;;
+    *http*)  proto=http ;;
+    *) proto=unknown ;;
+    esac
     grep -oiE 'href="[^"]*"|src="[^"]*"' "$html" | sort -u \
         > "$OUTPUT_DIR/links_${proto}.txt" 2>/dev/null || true
     grep -oiE '<form[^>]*>' "$html" \
         > "$OUTPUT_DIR/forms_${proto}.txt" 2>/dev/null || true
 done
 
-form_count=$(cat "$OUTPUT_DIR"/forms_*.txt 2>/dev/null | wc -l || echo 0)
+form_count=$(find "$OUTPUT_DIR" -name 'forms_*.txt' -type f -exec cat {} + 2>/dev/null | wc -l)
 log_metric "html_forms_found" "$form_count" "count"
 
 # SECTION 9 — IP-BASED ENUMERATION
 
 log_section "IP-based Enumeration"
 echo "[*] Running IP-based enumeration..."
-
-RESOLVED_IP=$(dig +short "$TARGET" 2>/dev/null | grep -oE '^[0-9.]+' | head -1 || true)
 
 if [ -n "$RESOLVED_IP" ]; then
     echo "$RESOLVED_IP" > "$OUTPUT_DIR/target_ip.txt"
@@ -316,7 +322,7 @@ fi
 # ENVIRONMENT CAPTURE (filtered — remove secrets)
 
 # AWS_SECRET_ACCESS_KEY, tokens, passwords etc. Filter to safe/useful vars only.
-env | grep -vE '^(AWS_SECRET|GITHUB_TOKEN|SLACK_TOKEN|PASSWORD|SECRET|TOKEN|KEY=)' \
+env | grep -vEi '(SECRET|TOKEN|PASSWORD|KEY)' \
     > "$OUTPUT_DIR/env_web_recon.txt" 2>/dev/null || true
 
 # SUMMARY
@@ -337,7 +343,7 @@ log_section "Web Recon Summary"
 
     echo
     echo "--- Open Ports (masscan) ---"
-    grep "^open" "$OUTPUT_DIR/masscan.out" 2>/dev/null | head -20 || echo "  (not run)"
+    [ -f "$OUTPUT_DIR/masscan.out" ] && grep "^open" "$OUTPUT_DIR/masscan.out" 2>/dev/null | head -20 || echo "  (not run)"
 
     echo
     echo "--- Web Tech ---"

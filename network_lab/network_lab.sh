@@ -4,7 +4,7 @@
 # Network Lab controller and menu handler
 chmod -R +x network_lab
 # DOUBLE SOURCE GUARD
-[[ -n "$_NETWORK_LAB_LOADED" ]] && return 0
+[[ -n "${_NETWORK_LAB_LOADED:-}" ]] && return 0
 _NETWORK_LAB_LOADED=1
 
 # PATH RESOLUTION

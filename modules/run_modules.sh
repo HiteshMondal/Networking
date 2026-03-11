@@ -24,26 +24,25 @@ show_modules_menu() {
     echo
     echo -e "  ${AMBER}System Security${NC}"
     echo -e "  ${GREEN}  2.${NC}  Secure System"
-    echo -e "  ${GREEN}  3.${NC}  Revert Security Changes"
     echo
     echo -e "  ${AMBER}Information Gathering${NC}"
-    echo -e "  ${GREEN}  4.${NC}  System Information"
+    echo -e "  ${GREEN}  3.${NC}  System Information"
     echo
     echo -e "  ${AMBER}Forensics${NC}"
-    echo -e "  ${GREEN}  5.${NC}  Forensic Data Collection"
+    echo -e "  ${GREEN}  4.${NC}  Forensic Data Collection"
     echo
     echo -e "  ${AMBER}Reconnaissance${NC}"
-    echo -e "  ${GREEN}  6.${NC}  Web Reconnaissance"
+    echo -e "  ${GREEN}  5.${NC}  Web Reconnaissance"
     echo
     echo -e "  ${AMBER}Threat Detection${NC}"
-    echo -e "  ${GREEN}  7.${NC}  Malware Analysis"
-    echo -e "  ${GREEN}  8.${NC}  Lateral Movement Detection"
-    echo -e "  ${GREEN}  9.${NC}  Log Analysis"
-    echo -e "  ${GREEN} 10.${NC}  Cloud Exposure Audit"
-    echo -e "  ${GREEN} 11.${NC}  Data Exfiltration Detection"
+    echo -e "  ${GREEN}  6.${NC}  Malware Analysis"
+    echo -e "  ${GREEN}  7.${NC}  Lateral Movement Detection"
+    echo -e "  ${GREEN}  8.${NC}  Log Analysis"
+    echo -e "  ${GREEN}  9.${NC}  Cloud Exposure Audit"
+    echo -e "  ${GREEN} 10.${NC}  Data Exfiltration Detection"
     echo
     echo -e "  ${AMBER}Automation${NC}"
-    echo -e "  ${GREEN} 12.${NC}  Run All Security Modules"
+    echo -e "  ${GREEN} 11.${NC}  Run All Security Modules"
     echo
     echo -e "  ${RED}  0.${NC}  Back to Main Menu"
     echo
@@ -268,7 +267,6 @@ run_all_modules() {
 
     execute_module "$MODULES_DIR/analysis/detect_suspicious_net_linux.sh"
     execute_module "$MODULES_DIR/system_security/secure_system.sh"
-    execute_module "$MODULES_DIR/system_security/revert_security.sh"
     execute_module "$MODULES_DIR/forensics/system_info.sh"
     execute_module "$MODULES_DIR/forensics/forensic_collect.sh"
 
@@ -294,10 +292,9 @@ run_modules() {
     case $choice in
         1) execute_module "$MODULES_DIR/analysis/detect_suspicious_net_linux.sh" ;;
         2) execute_module "$MODULES_DIR/system_security/secure_system.sh" ;;
-        3) execute_module "$MODULES_DIR/system_security/revert_security.sh" ;;
-        4) execute_module "$MODULES_DIR/forensics/system_info.sh" ;;
-        5) execute_module "$MODULES_DIR/forensics/forensic_collect.sh" ;;
-        6)
+        3) execute_module "$MODULES_DIR/forensics/system_info.sh" ;;
+        4) execute_module "$MODULES_DIR/forensics/forensic_collect.sh" ;;
+        5)
             echo
             echo -e "  ${ACCENT}Web Reconnaissance Target Setup${NC}"
             echo -e "  ${DARK_GRAY}---------------------------------${NC}"
@@ -318,12 +315,12 @@ run_modules() {
             read -rp "$(echo -e "  ${PROMPT}Press Enter to start reconnaissance...${NC}")"
             echo
             execute_module "$MODULES_DIR/reconnaissance/web_recon.sh" "$target";;
-        7) execute_module "$MODULES_DIR/threat_detection/malware_analysis.sh" ;;
-        8) execute_module "$MODULES_DIR/threat_detection/lateral_movement_detect.sh" ;;
-        9) execute_module "$MODULES_DIR/analysis/log_analysis.sh" ;;
-        10) execute_module "$MODULES_DIR/analysis/cloud_exposure_audit.sh" ;;
-        11) execute_module "$MODULES_DIR/threat_detection/data_exfil_detect.sh" ;;
-        12) run_all_modules ;;
+        6) execute_module "$MODULES_DIR/threat_detection/malware_analysis.sh" ;;
+        7) execute_module "$MODULES_DIR/threat_detection/lateral_movement_detect.sh" ;;
+        8) execute_module "$MODULES_DIR/analysis/log_analysis.sh" ;;
+        9) execute_module "$MODULES_DIR/analysis/cloud_exposure_audit.sh" ;;
+        10) execute_module "$MODULES_DIR/threat_detection/data_exfil_detect.sh" ;;
+        11) run_all_modules ;;
         0) return ;;
         *)
             log_error "Invalid choice: '${choice}'"

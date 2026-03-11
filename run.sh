@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -o pipefail
+set -Eeuo pipefail
 
 # Networking & Cybersecurity Automation Toolkit
 # Main control script
@@ -45,15 +45,17 @@ show_main_menu() {
     printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "MAIN MENU"
     echo -e "${BORDER}${border}${NC}"
     echo
+    echo -e "  ${LABEL}SETUP${NC}"
+    echo -e "  ${GREEN}  1.${NC}  Install / Verify Networking Tools"
+    echo
     echo -e "  ${LABEL}SECURITY${NC}"
-    echo -e "  ${GREEN}  1.${NC}  Run Security Modules"
+    echo -e "  ${GREEN}  2.${NC}  Run Security Modules"
     echo
     echo -e "  ${LABEL}MONITORING${NC}"
-    echo -e "  ${GREEN}  2.${NC}  View Dashboard"
+    echo -e "  ${GREEN}  3.${NC}  View Dashboard"
     echo -e "  ${GREEN}  7.${NC}  Stop Dashboard"
     echo
     echo -e "  ${LABEL}SYSTEM${NC}"
-    echo -e "  ${GREEN}  3.${NC}  View Recent Logs"
     echo -e "  ${GREEN}  4.${NC}  Clean Logs & Output"
     echo -e "  ${GREEN}  5.${NC}  System Information"
     echo
@@ -65,36 +67,20 @@ show_main_menu() {
     echo -e "${BORDER}${border}${NC}"
 }
 
-# VIEW LOGS
-view_logs() {
+install_dependencies() {
     clear
     show_banner
-
-    local W=50
-    local border
-    border=$(printf '%*s' "$W" '' | tr ' ' '=')
-
-    echo -e "${BORDER}${border}${NC}"
-    printf "${BORDER}|${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}|${NC}\n" "RECENT LOGS"
-    echo -e "${BORDER}${border}${NC}"
+    echo -e "  ${LABEL}Dependency Installer${NC}"
     echo
-
-    if [[ -n "$(ls -A "$LOG_DIR" 2>/dev/null)" ]]; then
-
-        echo -e "  ${LABEL}Available log files:${NC}"
+    if [[ -f "$PROJECT_ROOT/install.sh" ]]; then
+        echo -e "  ${AMBER}[+] Running dependency installer...${NC}"
         echo
-        ls -lht "$LOG_DIR" | head -n 11 | sed 's/^/  /'
+        bash "$PROJECT_ROOT/install.sh" || log_error "Installer failed"
         echo
-        echo -e "  ${MUTED}$(printf '%*s' 46 '' | tr ' ' '-')${NC}"
-        read -rp "$(echo -e "  ${PROMPT}[?] Enter filename to view, or 'q' to go back: ${NC}")" log_choice
-
-        if [[ "$log_choice" != "q" && -f "$LOG_DIR/$log_choice" ]]; then
-            less "$LOG_DIR/$log_choice"
-        fi
+        log_success "Dependency installation completed."
     else
-        echo -e "  ${MUTED}No logs found. Run some modules first.${NC}"
+        log_error "install.sh not found in project root."
     fi
-
     echo
     read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
@@ -103,19 +89,16 @@ view_logs() {
 clean_data() {
     clear
     show_banner
-
     echo -e "  ${FAILURE}[!] WARNING: This will permanently delete all logs and output files!"
     echo
-
     read -rp "$(echo -e "  ${WARNING}[?] Are you sure? [yes/no]: ${NC}")" confirm
 
     if [[ "$confirm" == "yes" ]]; then
-        rm -rf "${LOG_DIR:?}/"* "${OUTPUT_DIR:?}/"*
+        rm -rf -- "${LOG_DIR:?}/"* "${OUTPUT_DIR:?}/"*
         log_success "Cleaned successfully."
     else
         log_info "Operation cancelled."
     fi
-
     echo
     read -rp "$(echo -e "  ${MUTED}Press Enter to continue...${NC}  ")"
 }
@@ -134,7 +117,7 @@ show_system_info() {
     echo
     echo -e "  ${AMBER}Toolkit${NC}"
 
-    kv "  Log files" "$(find "$LOG_DIR" -type f 2>/dev/null | wc -l)"
+    kv "  Log files" "$(find "$LOG_DIR" -type f 2>/dev/null -printf '.' | wc -c)"
     kv "  Output files" "$(find "$OUTPUT_DIR" -type f 2>/dev/null | wc -l)"
     kv "  Modules" "$(find "$MODULES_DIR" -name '*.sh' ! -name 'run_modules.sh' | wc -l)"
 
@@ -168,12 +151,11 @@ main() {
         clear
         show_banner
         show_main_menu
-
         read -rp "$(echo -e "  ${PROMPT}[?] Enter your choice: ${NC}")" choice
         echo
-
         case $choice in
-            1)
+            1) install_dependencies ;;
+            2)
                 while true; do
                     show_modules_menu
                     read -rp "$(echo -e "  ${PROMPT}[?] Enter your choice: ${NC}")" module_choice
@@ -183,8 +165,7 @@ main() {
                     run_modules "$module_choice"
                 done
                 ;;
-            2) start_dashboard_main ;;
-            3) view_logs ;;
+            3) start_dashboard_main ;;
             4) clean_data ;;
             5) show_system_info ;;
             6) network_lab ;;

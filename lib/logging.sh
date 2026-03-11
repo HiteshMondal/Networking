@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #  Double-source guard 
-[[ -n "$_LOGGING_LOADED" ]] && return 0
+[[ -n "${_LOGGING_LOADED:-}" ]] && return 0
 _LOGGING_LOADED=1
 
 #  Hard dependency 

@@ -3,7 +3,7 @@
 # Shared utility functions for the Networking & Cybersecurity Toolkit
 # Used ASCII as it is compatible for all types of terminals
 # Double-source guard (NOT exported — prevents child process re-source issues)
-[[ -n "$_FUNCTIONS_LOADED" ]] && return 0
+[[ -n "${_FUNCTIONS_LOADED:-}" ]] && return 0
 _FUNCTIONS_LOADED=1
 
 # Source colors if not already loaded

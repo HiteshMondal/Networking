@@ -6,21 +6,29 @@
     <title>Networking & Cybersecurity Automation Toolkit — Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="bg-grid" aria-hidden="true"></div>
     <div class="bg-glow" aria-hidden="true"></div>
+    <div class="scanline" aria-hidden="true"></div>
 
     <div class="container">
-        <!--  Header  -->
+
+        <!--  HEADER  -->
         <header class="header" role="banner">
             <div class="header-left">
-                <div class="logo-mark" aria-hidden="true"><span class="logo-icon">⬡</span></div>
+                <div class="logo-mark" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                        <polygon points="11,2 20,7 20,15 11,20 2,15 2,7" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>
+                        <polygon points="11,6 16,9 16,13 11,16 6,13 6,9" fill="var(--cyan)" opacity="0.2"/>
+                        <circle cx="11" cy="11" r="2" fill="var(--cyan)"/>
+                    </svg>
+                </div>
                 <div class="header-text">
-                    <h1>Networking &amp; Cybersecurity Automation Toolkit</h1>
-                    <p class="subtitle">Networking &amp; Security Automation Suite</p>
+                    <h1>Networking & Cybersecurity Automation Toolkit</h1>
+                    <p class="subtitle">By Hitesh Mondal</p>
                 </div>
             </div>
 
@@ -34,54 +42,68 @@
             </div>
 
             <div class="header-center" role="status" aria-live="polite">
-                <div class="live-indicator">
+                <div class="live-indicator" id="liveIndicator">
                     <span class="pulse-dot" aria-hidden="true"></span>
                     <span id="liveStatus">Live</span>
                 </div>
-                <span class="separator" aria-hidden="true">|</span>
+                <span class="separator" aria-hidden="true">·</span>
                 <span class="last-update-label">Updated <time id="lastUpdate">—</time></span>
             </div>
 
             <nav class="header-actions" aria-label="Dashboard actions">
-                <button class="btn btn-ghost btn-sm" onclick="openAlertModal()" title="Alert settings">⚠ Alerts</button>
-                <button class="btn btn-ghost" id="autoRefreshBtn" onclick="toggleAutoRefresh()"
+                <button class="btn btn-ghost btn-sm" onclick="openAlertModal()" title="Alert settings">
+                    <span>⚠</span><span>Alerts</span>
+                </button>
+                <button class="btn btn-ghost btn-sm" id="autoRefreshBtn" onclick="toggleAutoRefresh()"
                         aria-pressed="true" title="Toggle auto-refresh">
-                    <span class="btn-icon" aria-hidden="true">⟳</span><span>Auto</span>
+                    <span>⟳</span><span>Auto</span>
                 </button>
-                <button class="btn btn-secondary" onclick="refreshDashboard()" aria-label="Refresh now">
-                    <span class="btn-icon" aria-hidden="true">↺</span><span>Refresh</span>
+                <button class="btn btn-secondary btn-sm" onclick="refreshDashboard()" aria-label="Refresh now">
+                    <span>↺</span><span>Refresh</span>
                 </button>
-                <button class="btn btn-primary" onclick="exportReport()" aria-label="Export report">
-                    <span class="btn-icon" aria-hidden="true">↓</span><span>Export</span>
+                <button class="btn btn-primary btn-sm" onclick="exportReport()" aria-label="Export report">
+                    <span>↓</span><span>Export</span>
                 </button>
             </nav>
         </header>
 
-        <!--  Stats  -->
+        <!--  STATS  -->
         <section class="stats-grid" aria-label="Execution statistics">
             <article class="stat-card" data-status="total">
-                <div class="stat-top"><span class="stat-label">Total Runs</span><span class="stat-chip chip-neutral">ALL</span></div>
+                <div class="stat-top">
+                    <span class="stat-label">Total Runs</span>
+                    <span class="stat-chip chip-neutral">ALL</span>
+                </div>
                 <div class="stat-value" id="totalScans" aria-live="polite">0</div>
-                <div class="stat-bar-track"><div class="stat-bar" id="barTotal" style="width:0%"></div></div>
+                <div class="stat-bar-track"><div class="stat-bar" id="barTotal"></div></div>
             </article>
             <article class="stat-card" data-status="success">
-                <div class="stat-top"><span class="stat-label">Successful</span><span class="stat-chip chip-success">OK</span></div>
+                <div class="stat-top">
+                    <span class="stat-label">Successful</span>
+                    <span class="stat-chip chip-success">OK</span>
+                </div>
                 <div class="stat-value success" id="successfulScans" aria-live="polite">0</div>
-                <div class="stat-bar-track"><div class="stat-bar bar-success" id="barSuccess" style="width:0%"></div></div>
+                <div class="stat-bar-track"><div class="stat-bar bar-success" id="barSuccess"></div></div>
             </article>
             <article class="stat-card" data-status="warning">
-                <div class="stat-top"><span class="stat-label">Warnings</span><span class="stat-chip chip-warning">WARN</span></div>
+                <div class="stat-top">
+                    <span class="stat-label">Warnings</span>
+                    <span class="stat-chip chip-warning">WARN</span>
+                </div>
                 <div class="stat-value warning" id="warningScans" aria-live="polite">0</div>
-                <div class="stat-bar-track"><div class="stat-bar bar-warning" id="barWarning" style="width:0%"></div></div>
+                <div class="stat-bar-track"><div class="stat-bar bar-warning" id="barWarning"></div></div>
             </article>
             <article class="stat-card" data-status="error">
-                <div class="stat-top"><span class="stat-label">Failed</span><span class="stat-chip chip-error">ERR</span></div>
+                <div class="stat-top">
+                    <span class="stat-label">Failed</span>
+                    <span class="stat-chip chip-error">ERR</span>
+                </div>
                 <div class="stat-value error" id="failedScans" aria-live="polite">0</div>
-                <div class="stat-bar-track"><div class="stat-bar bar-error" id="barFailed" style="width:0%"></div></div>
+                <div class="stat-bar-track"><div class="stat-bar bar-error" id="barFailed"></div></div>
             </article>
         </section>
 
-        <!--  Metrics Row  -->
+        <!--  METRICS ROW  -->
         <section class="metrics-row" aria-label="Metrics">
             <div class="metric-card metric-ring-card">
                 <div class="metric-label">Success Rate</div>
@@ -111,18 +133,22 @@
                 <div class="metric-label">By Category</div>
                 <div id="categoryChart" class="category-chart"></div>
             </div>
+            <div class="metric-card metric-timeline-card">
+                <div class="metric-label">Activity (7d)</div>
+                <canvas id="timelineCanvas" class="timeline-canvas" aria-label="Activity timeline"></canvas>
+                <div class="timeline-labels" id="timelineLabels"></div>
+            </div>
         </section>
 
-        <!--  System Stats  -->
+        <!--  SYSTEM STATS  -->
         <section class="sys-stats-section" aria-label="System resources" id="sysStatsPanel">
             <div class="sys-section-header">
                 <h2><span class="card-icon" aria-hidden="true">◉</span> System Resources</h2>
                 <span class="badge badge-live sys-live-badge">
-                    <span class="pulse-dot" aria-hidden="true"></span>Live · every 5s
+                    <span class="pulse-dot" aria-hidden="true"></span>Live · 5s
                 </span>
             </div>
             <div class="sys-grid">
-                <!-- CPU -->
                 <div class="sys-card level-ok" id="sysCardCpu">
                     <div class="sys-card-header">
                         <span class="sys-card-icon">⚙</span>
@@ -132,7 +158,6 @@
                     <div class="sys-bar-track"><div class="sys-bar-fill level-ok" id="sysCpuBar" style="width:0%"></div></div>
                     <div class="sys-card-sub" id="sysCpuSub">—</div>
                 </div>
-                <!-- Memory -->
                 <div class="sys-card level-ok" id="sysCardMem">
                     <div class="sys-card-header">
                         <span class="sys-card-icon">▤</span>
@@ -142,7 +167,6 @@
                     <div class="sys-bar-track"><div class="sys-bar-fill level-ok" id="sysMemBar" style="width:0%"></div></div>
                     <div class="sys-card-sub" id="sysMemSub">—</div>
                 </div>
-                <!-- Disk -->
                 <div class="sys-card level-ok" id="sysCardDisk">
                     <div class="sys-card-header">
                         <span class="sys-card-icon">◫</span>
@@ -152,7 +176,6 @@
                     <div class="sys-bar-track"><div class="sys-bar-fill level-ok" id="sysDiskBar" style="width:0%"></div></div>
                     <div class="sys-card-sub" id="sysDiskSub">—</div>
                 </div>
-                <!-- Network — FIX: removed duplicate id="sysNetErrors" -->
                 <div class="sys-card level-ok" id="sysCardNet">
                     <div class="sys-card-header">
                         <span class="sys-card-icon">⇅</span>
@@ -166,30 +189,58 @@
                     <div class="sys-card-sub">Errors: <span id="sysNetErrors">0</span></div>
                 </div>
             </div>
-            <!-- Temperatures (optional) -->
             <div class="sys-temps-row">
                 <span class="sys-temps-label">🌡 Temps:</span>
                 <div id="sysTemps" class="sys-temps-chips">—</div>
             </div>
         </section>
 
-        <!--  Content Grid  -->
-        <div class="content-grid">
-            <section class="card" aria-labelledby="activity-heading">
-                <div class="card-header">
-                    <h2 id="activity-heading"><span class="card-icon" aria-hidden="true">◈</span> Recent Activity</h2>
-                    <span class="badge badge-live" id="activityBadge" role="status">Live</span>
+        <!--  FINDINGS PANEL (NEW)  -->
+        <section class="card card-full findings-card" aria-labelledby="findings-heading">
+            <div class="card-header">
+                <h2 id="findings-heading">
+                    <span class="card-icon" aria-hidden="true">⚑</span> Security Findings
+                </h2>
+                <div class="card-header-controls">
+                    <select class="filter-select" id="findingSevFilter" onchange="filterFindings()">
+                        <option value="all">All Severities</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                        <option value="info">Info</option>
+                    </select>
+                    <span class="badge badge-findings" id="findingsCount" role="status">0 findings</span>
                 </div>
-                <div class="card-body" role="feed" aria-label="Recent script executions">
-                    <div id="recentActivity" class="activity-list">
-                        <div class="empty-state">
-                            <div class="empty-glyph" aria-hidden="true">⬡</div>
-                            <p>No activity yet. Run a script to get started.</p>
-                        </div>
+            </div>
+            <div class="card-body findings-body" id="findingsBody">
+                <div class="empty-state">
+                    <div class="empty-glyph" aria-hidden="true">⚑</div>
+                    <p>No findings yet. Run security modules to populate.</p>
+                </div>
+            </div>
+        </section>
+
+        <!--  SESSIONS + LOGS ROW  -->
+        <div class="two-col-grid">
+
+            <!-- Sessions Panel (NEW) -->
+            <section class="card" aria-labelledby="sessions-heading">
+                <div class="card-header">
+                    <h2 id="sessions-heading">
+                        <span class="card-icon" aria-hidden="true">◈</span> Sessions
+                    </h2>
+                    <span class="badge badge-info" id="sessionsCount" role="status">0</span>
+                </div>
+                <div class="card-body" id="sessionsBody">
+                    <div class="empty-state">
+                        <div class="empty-glyph" aria-hidden="true">◈</div>
+                        <p>No sessions recorded yet.</p>
                     </div>
                 </div>
             </section>
 
+            <!-- Log Files -->
             <section class="card" aria-labelledby="logs-heading">
                 <div class="card-header">
                     <h2 id="logs-heading"><span class="card-icon" aria-hidden="true">◧</span> Log Files</h2>
@@ -197,8 +248,9 @@
                 </div>
                 <div class="log-tabs" role="tablist" aria-label="Filter logs by source">
                     <button class="log-tab active" data-tab="all"     role="tab" onclick="updateLogFiles('all')">All</button>
-                    <button class="log-tab"         data-tab="scripts" role="tab" onclick="updateLogFiles('scripts')">Scripts</button>
-                    <button class="log-tab"         data-tab="tools"   role="tab" onclick="updateLogFiles('tools')">Tools</button>
+                    <button class="log-tab"        data-tab="scripts" role="tab" onclick="updateLogFiles('scripts')">Scripts</button>
+                    <button class="log-tab"        data-tab="tools"   role="tab" onclick="updateLogFiles('tools')">Tools</button>
+                    <button class="log-tab"        data-tab="jsonl"   role="tab" onclick="updateLogFiles('jsonl')">Structured</button>
                 </div>
                 <div class="card-body">
                     <div id="logFiles" class="log-list" role="list" aria-label="Available log files">
@@ -211,7 +263,7 @@
             </section>
         </div>
 
-        <!--  Execution History  -->
+        <!--  EXECUTION HISTORY  -->
         <section class="card card-full" aria-labelledby="history-heading">
             <div class="card-header">
                 <h2 id="history-heading"><span class="card-icon" aria-hidden="true">◈</span> Execution History</h2>
@@ -252,17 +304,18 @@
                             <th scope="col">Status</th>
                             <th scope="col">Duration</th>
                             <th scope="col">Size</th>
+                            <th scope="col">Format</th>
                             <th scope="col"><span class="sr-only">Actions</span></th>
                         </tr></thead>
                         <tbody id="historyTable">
-                            <tr><td colspan="8" class="empty-row">No execution history yet</td></tr>
+                            <tr><td colspan="9" class="empty-row">No execution history yet</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <!--  Output Files  -->
+        <!--  OUTPUT FILES  -->
         <section class="card card-full" aria-labelledby="outputs-heading">
             <div class="card-header">
                 <h2 id="outputs-heading"><span class="card-icon" aria-hidden="true">◪</span> Output Files</h2>
@@ -285,15 +338,22 @@
         </section>
 
         <footer class="footer" role="contentinfo">
-            <span class="footer-logo" aria-hidden="true">⬡</span>
-            <span>Networking &amp; Cybersecurity Automation Toolkit</span>
-            <span class="footer-sep" aria-hidden="true">·</span><span>v3.1</span>
+            <span class="footer-logo" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 22 22" fill="none">
+                    <polygon points="11,2 20,7 20,15 11,20 2,15 2,7" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>
+                </svg>
+            </span>
+            <span>Networking & Cybersecurity Automation Toolkit</span>
             <span class="footer-sep" aria-hidden="true">·</span>
-            <span class="footer-hint">Ctrl+F to search · Ctrl+R to refresh</span>
+            <span>By Hitesh Mondal</span>
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <span>v4.0</span>
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <span class="footer-hint">Ctrl+F Search · Ctrl+R Refresh · Esc Close</span>
         </footer>
     </div>
 
-    <!--  Log Viewer Modal  -->
+    <!--  LOG VIEWER MODAL  -->
     <div id="logModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-content">
             <div class="modal-header">
@@ -306,18 +366,28 @@
                 </div>
             </div>
             <div class="modal-toolbar">
-                <span class="mono-tag" id="modalMeta">—</span>
+                <div class="modal-toolbar-left">
+                    <span class="mono-tag" id="modalMeta">—</span>
+                    <span class="log-format-badge" id="logFormatBadge"></span>
+                </div>
                 <div class="modal-toolbar-actions">
-                    <button class="btn btn-ghost btn-sm" onclick="copyLogContent()"><span aria-hidden="true">⧉</span> Copy</button>
-                    <button class="btn btn-ghost btn-sm" onclick="openShareModal(currentLogFile)"><span aria-hidden="true">↗</span> Share</button>
-                    <button class="btn btn-secondary btn-sm" onclick="downloadCurrentLog()"><span aria-hidden="true">↓</span> Download</button>
+                    <!-- View mode toggle (only shown for .jsonl) -->
+                    <div class="view-mode-toggle" id="viewModeToggle" style="display:none">
+                        <button class="view-mode-btn active" id="vmRaw"    onclick="setViewMode('raw')">Raw</button>
+                        <button class="view-mode-btn"        id="vmParsed" onclick="setViewMode('parsed')">Structured</button>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" onclick="copyLogContent()"><span>⧉</span> Copy</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openShareModal(currentLogFile)"><span>↗</span> Share</button>
+                    <button class="btn btn-secondary btn-sm" onclick="downloadCurrentLog()"><span>↓</span> Download</button>
                 </div>
             </div>
-            <div class="modal-body"><pre id="logContent" tabindex="0">Loading…</pre></div>
+            <div class="modal-body" id="modalBody">
+                <pre id="logContent" tabindex="0">Loading…</pre>
+            </div>
         </div>
     </div>
 
-    <!--  Share Modal  -->
+    <!--  SHARE MODAL  -->
     <div id="shareModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
         <div class="modal-content modal-share">
             <div class="modal-header">
@@ -350,7 +420,7 @@
         </div>
     </div>
 
-    <!--  Alert Settings Modal  -->
+    <!--  ALERT SETTINGS MODAL  -->
     <div id="alertModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="alertModalTitle">
         <div class="modal-content modal-alert">
             <div class="modal-header">
@@ -363,15 +433,15 @@
                     <div class="alert-group">
                         <div class="alert-group-label">⚙ CPU (%)</div>
                         <div class="alert-inputs">
-                            <label>Warn <input type="number" id="alertCpuWarn" class="alert-input" min="0" max="100" value="70"/></label>
-                            <label>Critical <input type="number" id="alertCpuCrit" class="alert-input" min="0" max="100" value="90"/></label>
+                            <label>Warn <input type="number" id="alertCpuWarn"  class="alert-input" min="0" max="100" value="70"/></label>
+                            <label>Critical <input type="number" id="alertCpuCrit"  class="alert-input" min="0" max="100" value="90"/></label>
                         </div>
                     </div>
                     <div class="alert-group">
                         <div class="alert-group-label">▤ Memory (%)</div>
                         <div class="alert-inputs">
-                            <label>Warn <input type="number" id="alertMemWarn" class="alert-input" min="0" max="100" value="75"/></label>
-                            <label>Critical <input type="number" id="alertMemCrit" class="alert-input" min="0" max="100" value="90"/></label>
+                            <label>Warn <input type="number" id="alertMemWarn"  class="alert-input" min="0" max="100" value="75"/></label>
+                            <label>Critical <input type="number" id="alertMemCrit"  class="alert-input" min="0" max="100" value="90"/></label>
                         </div>
                     </div>
                     <div class="alert-group">
@@ -394,6 +464,17 @@
                     <button class="btn btn-primary"   onclick="saveAlertSettings()">Save Settings</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!--  FINDING DETAIL MODAL (NEW)  -->
+    <div id="findingModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="findingModalTitle">
+        <div class="modal-content modal-finding">
+            <div class="modal-header">
+                <h2 id="findingModalTitle">Finding Detail</h2>
+                <button class="modal-close" onclick="closeFindingModal()" aria-label="Close">✕</button>
+            </div>
+            <div class="finding-detail-body" id="findingDetailBody"></div>
         </div>
     </div>
 

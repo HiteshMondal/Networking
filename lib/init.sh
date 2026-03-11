@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Prevent double loading
-[[ -n "$_LIB_INIT_LOADED" ]] && return
+[[ -n "${_LIB_INIT_LOADED:-}" ]] && return
 _LIB_INIT_LOADED=1
 
 # Resolve project root only if not already defined
