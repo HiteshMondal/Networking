@@ -608,97 +608,493 @@ check_tcpip_model() {
     pause
 }
  
-
 #  BANDWIDTH vs LATENCY vs THROUGHPUT
 check_bandwidth_concepts() {
     header "Bandwidth vs Latency vs Throughput"
-
-    echo -e "${GREEN}Understanding the differences:${NC}\n"
-    kv "Bandwidth"   "Maximum data capacity  (like highway lanes) — Mbps, Gbps"
-    kv "Latency"     "Time delay for data to travel (like travel time) — ms"
-    kv "Throughput"  "Actual data transferred (cars that arrived) — Mbps, Gbps"
-
-    section "Interface Bandwidth (Maximum)"
-    echo -e "${INFO}Reported link speed per interface:${NC}"
-    for eth_iface in $(ip link show 2>/dev/null \
-            | grep -oP '^\d+: \K[^:]+' | grep -v lo); do
-        local speed
-        speed=$(ethtool "$eth_iface" 2>/dev/null | grep -i "^.*speed:" | awk '{print $2}')
-        if [[ -n "$speed" ]]; then
-            kv "$eth_iface" "$speed"
+ 
+    #  1. CONCEPT REFERENCE 
+    section "Core Concepts"
+    cat << 'INFO'
+  These three terms are often used interchangeably but measure fundamentally
+  different things. Confusing them leads to misdiagnosed performance problems.
+ 
+  Bandwidth — the pipe width
+    The maximum theoretical data capacity of a link.
+    Unit: bits per second (Mbps, Gbps).
+    Analogy: number of lanes on a highway.
+    Determined by: physical medium, hardware NIC/AP, ISP subscription tier.
+    Measurement: ethtool (wired), iw (wireless), speedtest-cli (end-to-end).
+    Key fact: bandwidth is a ceiling — actual transfer rarely reaches it.
+ 
+  Latency — the travel time
+    Time for a single packet to travel from source to destination (one-way),
+    or source → destination → source (round-trip, RTT).
+    Unit: milliseconds (ms).
+    Analogy: the time a car takes to drive from A to B, regardless of traffic.
+    Sources: propagation delay (speed of light), serialisation delay,
+             queuing delay, processing delay at each hop.
+    Key fact: high bandwidth does NOT reduce latency. A satellite link may
+              have 1 Gbps bandwidth but 600 ms RTT.
+ 
+  Throughput — what actually arrived
+    The actual data successfully transferred per unit time, measured end-to-end.
+    Unit: bits per second (Mbps, Gbps) — same as bandwidth but always ≤ bandwidth.
+    Analogy: the number of cars that actually completed the journey per hour.
+    Factors: packet loss (triggers TCP retransmit, halves cwnd), RTT (limits
+             TCP window), CPU/NIC overhead, protocol overhead (headers, ACKs).
+    Measurement: iperf3 (controlled), speedtest-cli (real-world ISP).
+ 
+  Jitter — latency variance
+    The variation in RTT between successive packets.
+    Unit: milliseconds (ms). Ideal: < 5 ms for VoIP/video.
+    High jitter causes choppy audio, video stuttering, and VoIP degradation
+    even when average latency is acceptable.
+ 
+  Bandwidth–Delay Product (BDP)
+    BDP = Bandwidth × RTT  (bytes in flight needed to saturate a link)
+    Example: 1 Gbps × 100 ms RTT = 12.5 MB of in-flight data needed.
+    TCP window size must equal BDP to fully utilise a high-BDP path.
+    Relevant for: long-fat networks (LFN), satellite, WAN optimisation.
+ 
+  Relationship summary:
+    Throughput ≤ Bandwidth  (always — overhead and loss reduce it)
+    Throughput ↓  when Latency ↑  (TCP slow-start, window limits)
+    Throughput ↓  when Packet Loss ↑  (TCP congestion control)
+    Jitter is independent of average latency — measure separately
+INFO
+ 
+    #  2. INTERFACE LINK SPEED (BANDWIDTH CEILING) 
+    section "Interface Link Speed (Bandwidth Ceiling)"
+ 
+    echo -e "  ${LABEL}Wired interfaces (ethtool):${NC}"
+    echo
+ 
+    local found_any=0
+    while IFS= read -r iface; do
+        [[ "$iface" == "lo" ]] && continue
+ 
+        # ethtool for wired; iw for wireless
+        if [[ -d "/sys/class/net/${iface}/wireless" ]]; then
+            # Wireless: get bitrate from iw
+            if command -v iw &>/dev/null; then
+                local bitrate channel freq
+                bitrate=$(iw dev "$iface" link 2>/dev/null \
+                    | grep -oP 'tx bitrate: \K[^\n]+' | head -1)
+                channel=$(iw dev "$iface" info 2>/dev/null \
+                    | grep -oP 'channel \K[0-9]+')
+                freq=$(iw dev "$iface" info 2>/dev/null \
+                    | grep -oP '\(\K[0-9.]+ MHz')
+ 
+                if [[ -n "$bitrate" ]]; then
+                    (( found_any++ ))
+                    printf "  ${LABEL}%-14s${NC}  ${GOLD}%-20s${NC}  ${MUTED}ch:%-4s %s${NC}\n" \
+                        "${iface} (wifi)" "$bitrate" "$channel" "$freq"
+                fi
+            fi
+            continue
         fi
-    done
-    echo -e "  ${MUTED}(No output = virtual/wireless interface or ethtool not available)${NC}"
-
+ 
+        if ! command -v ethtool &>/dev/null; then
+            continue
+        fi
+ 
+        local speed duplex link_state
+        speed=$(ethtool "$iface" 2>/dev/null | grep -i '^\s*speed:' | awk '{print $2}')
+        duplex=$(ethtool "$iface" 2>/dev/null | grep -i '^\s*duplex:' | awk '{print $2}')
+        link_state=$(ethtool "$iface" 2>/dev/null \
+            | grep -i '^\s*link detected:' | awk '{print $3}')
+ 
+        [[ -z "$speed" ]] && continue
+        (( found_any++ ))
+ 
+        local link_col speed_col
+        [[ "$link_state" == "yes" ]] && link_col="$SUCCESS" || link_col="$MUTED"
+ 
+        # Colour by speed tier
+        case "$speed" in
+            10000Mb/s|25000Mb/s|40000Mb/s|100000Mb/s) speed_col="$SUCCESS" ;;
+            1000Mb/s)  speed_col="$SUCCESS" ;;
+            100Mb/s)   speed_col="$WARNING" ;;
+            10Mb/s)    speed_col="$FAILURE" ;;
+            *)         speed_col="$MUTED"   ;;
+        esac
+ 
+        printf "  ${LABEL}%-14s${NC}  ${speed_col}%-14s${NC}  duplex: ${MUTED}%-8s${NC}  link: ${link_col}%s${NC}\n" \
+            "$iface" "$speed" "${duplex:---}" "${link_state:---}"
+ 
+    done < <(ls /sys/class/net/ 2>/dev/null)
+ 
+    if [[ $found_any -eq 0 ]]; then
+        echo -e "  ${MUTED}  No link speed data available${NC}"
+        echo -e "  ${MUTED}  (virtual/container interfaces, or ethtool/iw not installed)${NC}"
+    fi
+ 
+    #  3. LATENCY MEASUREMENT 
     section "Latency Measurement"
-    echo -e "${INFO}RTT to 8.8.8.8 (Round Trip Time):${NC}"
-    ping -c 4 -W 2 8.8.8.8 2>/dev/null | grep -E "(time=|rtt)" | sed 's/^/  /' \
-        || echo -e "  ${MUTED}Ping not available or no connectivity${NC}"
-
-    section "Current Throughput Snapshot"
-    echo -e "${INFO}Interface RX/TX byte counters:${NC}"
-    ip -s link show 2>/dev/null \
-        | awk '
-            /^[0-9]+: / { iface=$2 }
-            /RX:/       { getline; printf "  %-14s RX: %s bytes\n", iface, $1 }
-            /TX:/       { getline; printf "  %-14s TX: %s bytes\n", iface, $1 }
-        ' \
-        || ifconfig 2>/dev/null | grep -E "RX|TX" | sed 's/^/  /'
-
-    echo -e "\n  ${MUTED}Tip: use iperf3 or speedtest-cli for true throughput measurement${NC}"
-
+ 
+    # Targets: local gateway, public DNS, a remote host
+    local gateway
+    gateway=$(ip route show default 2>/dev/null | awk '{print $3}' | head -1)
+ 
+    declare -A ping_targets=(
+        ["Local gateway"]="${gateway:-skip}"
+        ["Google DNS (8.8.8.8)"]="8.8.8.8"
+        ["Cloudflare DNS (1.1.1.1)"]="1.1.1.1"
+        ["Google (google.com)"]="google.com"
+    )
+ 
+    local target_order=(
+        "Local gateway"
+        "Google DNS (8.8.8.8)"
+        "Cloudflare DNS (1.1.1.1)"
+        "Google (google.com)"
+    )
+ 
+    printf "  ${BOLD}${TITLE}%-28s %-10s %-10s %-10s %-10s %s${NC}\n" \
+        "Target" "Min ms" "Avg ms" "Max ms" "Loss %" "Jitter"
+    printf "  ${DARK_GRAY}%s${NC}\n" "$(printf '%*s' 80 '' | tr ' ' '-')"
+ 
+    for label in "${target_order[@]}"; do
+        local host="${ping_targets[$label]}"
+        [[ "$host" == "skip" || -z "$host" ]] && continue
+ 
+        local ping_out
+        ping_out=$(ping -c 5 -W 2 "$host" 2>/dev/null)
+ 
+        if [[ -z "$ping_out" ]]; then
+            printf "  ${LABEL}%-28s${NC}  ${FAILURE}unreachable${NC}\n" "$label"
+            continue
+        fi
+ 
+        # Parse rtt min/avg/max/mdev line
+        local min avg max mdev loss
+        min=$(echo  "$ping_out" | grep -oP 'rtt min.*= \K[0-9.]+')
+        avg=$(echo  "$ping_out" | grep -oP 'rtt min.*= [0-9.]+/\K[0-9.]+')
+        max=$(echo  "$ping_out" | grep -oP 'rtt min.*= [0-9.]+/[0-9.]+/\K[0-9.]+')
+        mdev=$(echo "$ping_out" | grep -oP 'rtt min.*= [0-9.]+/[0-9.]+/[0-9.]+/\K[0-9.]+')
+        loss=$(echo "$ping_out" | grep -oP '[0-9.]+(?=% packet loss)')
+ 
+        # Colour by average latency
+        local lat_col
+        if   (( $(echo "$avg < 20"  | bc -l 2>/dev/null) )); then lat_col="$SUCCESS"
+        elif (( $(echo "$avg < 80"  | bc -l 2>/dev/null) )); then lat_col="$WARNING"
+        else                                                        lat_col="$FAILURE"
+        fi 2>/dev/null
+        [[ -z "$avg" ]] && lat_col="$MUTED"
+ 
+        # Colour by loss
+        local loss_col
+        [[ "${loss:-0}" == "0" ]] && loss_col="$SUCCESS" || loss_col="$FAILURE"
+ 
+        printf "  ${LABEL}%-28s${NC}  ${MUTED}%-10s${NC} ${lat_col}%-10s${NC} ${MUTED}%-10s${NC} ${loss_col}%-10s${NC} ${MUTED}%s ms${NC}\n" \
+            "$label" \
+            "${min:---}" "${avg:---}" "${max:---}" \
+            "${loss:-?}%" "${mdev:---}"
+    done
+ 
+    echo
+    echo -e "  ${MUTED}  Interpretation:${NC}"
+    echo -e "  ${SUCCESS}  < 20 ms${NC}   ${MUTED}excellent (local/regional)${NC}"
+    echo -e "  ${WARNING}  20–80 ms${NC}  ${MUTED}acceptable (cross-country)${NC}"
+    echo -e "  ${FAILURE}  > 80 ms${NC}   ${MUTED}high (satellite/congestion) — investigate${NC}"
+    echo -e "  ${MUTED}  Jitter (mdev) > 5 ms may cause VoIP/video degradation${NC}"
+ 
+    #  4. THROUGHPUT SNAPSHOT 
+    section "Throughput Snapshot — Interface Byte Counters"
+ 
+    echo -e "  ${MUTED}  These are cumulative counters since last interface reset, not current rate.${NC}"
+    echo -e "  ${MUTED}  For current rate: watch -n1 cat /proc/net/dev  or  vnstat -l${NC}"
+    echo
+ 
+    printf "  ${BOLD}${TITLE}%-14s %16s %16s %10s %10s${NC}\n" \
+        "Interface" "RX bytes" "TX bytes" "RX pkts" "TX pkts"
+    printf "  ${DARK_GRAY}%s${NC}\n" "$(printf '%*s' 72 '' | tr ' ' '-')"
+ 
+    # /proc/net/dev is universally available — no tool dependency
+    while IFS= read -r line; do
+        # Format: iface: rx_bytes rx_pkts rx_errs ... tx_bytes tx_pkts ...
+        [[ "$line" =~ ^[[:space:]]*([^:]+):[[:space:]]*([0-9]+)[[:space:]]+([0-9]+)[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+([0-9]+)[[:space:]]+([0-9]+) ]] || continue
+ 
+        local iface="${BASH_REMATCH[1]}"
+        local rx_bytes="${BASH_REMATCH[2]}"
+        local rx_pkts="${BASH_REMATCH[3]}"
+        local tx_bytes="${BASH_REMATCH[4]}"
+        local tx_pkts="${BASH_REMATCH[5]}"
+ 
+        [[ "$iface" == "lo" ]] && continue
+        [[ "$rx_bytes" == "0" && "$tx_bytes" == "0" ]] && continue
+ 
+        # Human-readable byte conversion
+        _human_bytes() {
+            local b=$1
+            if   (( b >= 1073741824 )); then printf "%.2f GB" "$(echo "scale=2; $b/1073741824" | bc -l 2>/dev/null)"
+            elif (( b >= 1048576 ));    then printf "%.2f MB" "$(echo "scale=2; $b/1048576"    | bc -l 2>/dev/null)"
+            elif (( b >= 1024 ));       then printf "%.2f KB" "$(echo "scale=2; $b/1024"       | bc -l 2>/dev/null)"
+            else printf "%d B" "$b"
+            fi
+        }
+ 
+        printf "  ${LABEL}%-14s${NC} ${VALUE}%16s${NC} ${VALUE}%16s${NC} ${MUTED}%10s${NC} ${MUTED}%10s${NC}\n" \
+            "$iface" \
+            "$(_human_bytes "$rx_bytes")" "$(_human_bytes "$tx_bytes")" \
+            "$rx_pkts" "$tx_pkts"
+ 
+    done < /proc/net/dev
+ 
+    echo
+    echo -e "  ${AMBER}Throughput measurement tools:${NC}"
+    for tool_entry in \
+        "iperf3:iperf3 -c <server>:Controlled TCP/UDP throughput between two hosts" \
+        "speedtest-cli:speedtest-cli:ISP download/upload speed to nearest server" \
+        "nload:nload <iface>:Real-time RX/TX rate graph per interface" \
+        "vnstat:vnstat -l:Live traffic rate + hourly/daily/monthly totals" \
+        "nethogs:nethogs <iface>:Per-process bandwidth usage (like top for bandwidth)"
+    do
+        local tool cmd desc
+        IFS=':' read -r tool cmd desc <<< "$tool_entry"
+        local avail_col avail_label
+        if command -v "$tool" &>/dev/null; then
+            avail_col="$SUCCESS"; avail_label="installed"
+        else
+            avail_col="$MUTED";   avail_label="not found "
+        fi
+        printf "  ${avail_col}%-10s${NC}  ${MUTED}cmd: ${VALUE}%-30s${NC}  ${MUTED}%s${NC}\n" \
+            "$avail_label" "$cmd" "$desc"
+    done
+ 
+    echo
     pause
 }
 
 #  PACKET SWITCHING vs CIRCUIT SWITCHING
 check_switching_types() {
     header "Packet Switching vs Circuit Switching"
-
-    echo -e "${GREEN}Two fundamental network switching methods:${NC}\n"
-
-    section "Circuit Switching"
-    echo -e "  ${MUTED}• Dedicated path established before communication${NC}"
-    echo -e "  ${MUTED}• Resources reserved for entire session${NC}"
-    echo -e "  ${MUTED}• Example: Traditional telephone networks (PSTN)${NC}"
-    echo -e "  ${GREEN}+ Guaranteed bandwidth, predictable performance${NC}"
-    echo -e "  ${YELLOW}− Inefficient (idle capacity wasted), expensive, rigid${NC}"
-
-    section "Packet Switching"
-    echo -e "  ${MUTED}• Data broken into packets, each routed independently${NC}"
-    echo -e "  ${MUTED}• No dedicated path — shared resources${NC}"
-    echo -e "  ${MUTED}• Example: The Internet (IP networks)${NC}"
-    echo -e "  ${GREEN}+ Efficient, flexible, cost-effective${NC}"
-    echo -e "  ${YELLOW}− Variable delay, no guaranteed delivery${NC}"
-
-    section "Packet Switching in Action"
-
-    echo -e "${INFO}IP forwarding status:${NC}"
-    local fwd
-    fwd=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)
-    if [[ "$fwd" == "1" ]]; then
-        status_line ok "IP forwarding ENABLED — this host routes/forwards packets"
-    else
-        status_line neutral "IP forwarding DISABLED — endpoint mode (normal workstation)"
-    fi
-
+ 
+    #  1. CONCEPT REFERENCE 
+    section "Core Concepts"
+    cat << 'INFO'
+  Two fundamental paradigms for carrying data across a network. Every network
+  you use daily is built on one of these — or a hybrid.
+ 
+  ┌┐
+  │  Circuit Switching                                                       │
+  └┘
+  How it works:
+    A dedicated end-to-end physical (or logical) path is established before
+    any data is sent, and held exclusively for the duration of the session.
+    Resources at every node along the path are reserved in advance.
+ 
+  Phases:  1. Circuit establishment  2. Data transfer  3. Circuit teardown
+ 
+  Examples:
+    • PSTN — traditional telephone network (analogue and ISDN)
+    • SONET/SDH — synchronous optical carrier (still used in telco backbones)
+    • ATM (Asynchronous Transfer Mode) — fixed 53-byte cells, virtual circuits
+ 
+  Advantages:
+    ✔ Guaranteed, constant bandwidth for the session
+    ✔ Predictable, bounded latency (no queuing delay mid-session)
+    ✔ In-order delivery — no reassembly needed
+    ✔ Simple at the data level — no headers per segment once established
+ 
+  Disadvantages:
+    ✘ Inefficient — reserved capacity is wasted during silence (phone calls
+      are silent ~50% of the time)
+    ✘ Rigid — adding capacity requires provisioning new circuits
+    ✘ Poor utilisation for bursty data traffic (web browsing, file transfers)
+    ✘ Single point of failure — circuit breaks = entire session drops
+    ✘ Long setup latency for short communications
+ 
+  ┌┐
+  │  Packet Switching                                                        │
+  └┘
+  How it works:
+    Data is divided into packets. Each packet carries a header with source,
+    destination, and sequencing information. Packets traverse the network
+    independently — potentially via different paths — and are reassembled
+    at the destination.
+ 
+  Two modes:
+    Datagram (connectionless) — IP. No setup phase. Each packet routed
+      independently. No delivery guarantee. Out-of-order arrival possible.
+ 
+    Virtual Circuit (connection-oriented) — ATM, MPLS, Frame Relay.
+      A logical path is pre-computed; packets follow it in order. Still
+      packet-switched underneath but behaves more like circuit switching.
+ 
+  Examples:
+    • The Internet — IP (IPv4/IPv6), the dominant global example
+    • MPLS — label-switched paths in ISP/enterprise WAN cores
+    • Ethernet LANs — frames switched between hosts
+    • WiFi — 802.11 frames over shared radio medium
+ 
+  Advantages:
+    ✔ High link utilisation — idle bandwidth is used by other flows
+    ✔ Resilient — packets rerouted around failures automatically (IP)
+    ✔ Scales efficiently to millions of simultaneous flows
+    ✔ Cost-effective — shared infrastructure, no per-call provisioning
+    ✔ Supports bursty traffic patterns naturally
+ 
+  Disadvantages:
+    ✘ Variable latency — queuing at congested routers adds delay (jitter)
+    ✘ No delivery guarantee (UDP) — application must handle loss
+    ✘ Out-of-order packets require reassembly (TCP handles this)
+    ✘ Header overhead per packet (IPv4: 20 B min, IPv6: 40 B min)
+    ✘ QoS requires explicit configuration (DSCP, traffic shaping)
+ 
+  ┌┐
+  │  Side-by-Side Comparison                                                 │
+  └┘
+  Property           Circuit Switching      Packet Switching (IP)
+      
+  Path               Dedicated, fixed       Dynamic per-packet (or MPLS LSP)
+  Setup phase        Required               No (connectionless) / SYN (TCP)
+  Bandwidth          Reserved (guaranteed)  Shared (best-effort)
+  Latency            Constant (bounded)     Variable (jitter possible)
+  Loss handling      N/A (CBR circuit)      TCP retransmit / UDP drop
+  Efficiency         Low (idle waste)       High (statistical multiplex)
+  Resilience         Low (path failure)     High (rerouting)
+  Use case           Voice, real-time CBR   Data, web, video, most traffic
+  Modern examples    PSTN, SONET, ATM       Internet, Ethernet, WiFi, MPLS
+INFO
+ 
+    #  2. IP FORWARDING STATE 
+    section "IP Forwarding State"
+ 
+    echo -e "  ${MUTED}  IP forwarding determines whether this host routes packets between interfaces.${NC}"
+    echo -e "  ${MUTED}  Routers/gateways: ON.  Normal workstations: OFF.${NC}"
     echo
-    echo -e "${INFO}Traceroute — packets taking hops through the Internet:${NC}"
-    if cmd_exists traceroute; then
-        traceroute -m 8 -w 2 google.com 2>/dev/null | head -10 | sed 's/^/  /'
-    elif cmd_exists tracepath; then
-        tracepath -n google.com 2>/dev/null | head -10 | sed 's/^/  /'
+ 
+    local ipv4_fwd ipv6_fwd
+    ipv4_fwd=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)
+    ipv6_fwd=$(cat /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null)
+ 
+    if [[ "$ipv4_fwd" == "1" ]]; then
+        status_line ok    "IPv4 forwarding: ENABLED  — this host forwards/routes IPv4 packets"
     else
-        echo -e "  ${MUTED}traceroute/tracepath not available${NC}"
+        status_line neutral "IPv4 forwarding: DISABLED — normal endpoint / workstation mode"
     fi
-
+ 
+    if [[ "$ipv6_fwd" == "1" ]]; then
+        status_line ok    "IPv6 forwarding: ENABLED  — this host forwards/routes IPv6 packets"
+    else
+        status_line neutral "IPv6 forwarding: DISABLED — normal endpoint / workstation mode"
+    fi
+ 
     echo
-    echo -e "${INFO}Current packet-switched connections:${NC}"
-    ss -tn 2>/dev/null | head -10 | sed 's/^/  /' \
-        || netstat -tn 2>/dev/null | head -10 | sed 's/^/  /'
-
+    kv "  /proc/sys/net/ipv4/ip_forward" "${ipv4_fwd:-unavailable}"
+    kv "  /proc/sys/net/ipv6/conf/all/forwarding" "${ipv6_fwd:-unavailable}"
+ 
+    # Routing table summary
+    echo
+    echo -e "  ${LABEL}Routing table (packet forwarding decisions):${NC}"
+    ip route show 2>/dev/null | head -12 | while IFS= read -r route_line; do
+        # Colour default route distinctly
+        if [[ "$route_line" == default* ]]; then
+            printf "  ${SUCCESS}%-70s${NC}\n" "$route_line"
+        else
+            printf "  ${VALUE}%-70s${NC}\n" "$route_line"
+        fi
+    done
+ 
+    #  3. TRACEROUTE — PACKET SWITCHING HOPS 
+    section "Traceroute — Packet Path Through the Network"
+ 
+    echo -e "  ${MUTED}  Each hop is a packet-switching router making an independent forwarding decision.${NC}"
+    echo -e "  ${MUTED}  * = no ICMP TTL-exceeded reply (firewall / rate limiting)${NC}"
+    echo
+ 
+    local trace_target="8.8.8.8"
+    local trace_label="Google DNS (8.8.8.8)"
+ 
+    if command -v traceroute &>/dev/null; then
+        echo -e "  ${LABEL}traceroute to ${trace_label}:${NC}"
+        traceroute -n -m 10 -w 2 "$trace_target" 2>/dev/null \
+            | head -12 \
+            | while IFS= read -r hop_line; do
+                # Colour the header line differently
+                if [[ "$hop_line" == traceroute* ]]; then
+                    printf "  ${MUTED}%s${NC}\n" "$hop_line"
+                elif [[ "$hop_line" =~ ^[[:space:]]*[0-9]+ ]]; then
+                    local hop_num
+                    hop_num=$(echo "$hop_line" | awk '{print $1}')
+                    # Colour unreachable hops (all *) differently
+                    if [[ "$hop_line" =~ \*[[:space:]]+\*[[:space:]]+\* ]]; then
+                        printf "  ${MUTED}%s${NC}\n" "$hop_line"
+                    else
+                        printf "  ${ACCENT}[%2s]${NC}  ${VALUE}%s${NC}\n" \
+                            "$hop_num" "${hop_line#*$hop_num}"
+                    fi
+                else
+                    printf "  %s\n" "$hop_line"
+                fi
+            done
+    elif command -v tracepath &>/dev/null; then
+        echo -e "  ${LABEL}tracepath to ${trace_label}:${NC}"
+        tracepath -n "$trace_target" 2>/dev/null | head -12 | sed 's/^/  /'
+    else
+        echo -e "  ${MUTED}  traceroute and tracepath not available${NC}"
+        echo -e "  ${MUTED}  Install: sudo apt install traceroute${NC}"
+    fi
+ 
+    #  4. ACTIVE CONNECTIONS 
+    section "Active Packet-Switched Connections"
+ 
+    echo -e "  ${MUTED}  Each row is an independent packet stream — no dedicated circuit.${NC}"
+    echo
+ 
+    printf "  ${BOLD}${TITLE}%-8s %-22s %-22s %-12s %s${NC}\n" \
+        "Proto" "Local Address" "Remote Address" "State" "Process"
+    printf "  ${DARK_GRAY}%s${NC}\n" "$(printf '%*s' 80 '' | tr ' ' '-')"
+ 
+    if command -v ss &>/dev/null; then
+        ss -tnp 2>/dev/null | tail -n +2 | head -15 \
+            | while IFS= read -r ss_line; do
+                local proto local_addr remote_addr state proc
+                read -r state _ _ local_addr remote_addr proc <<< "$ss_line"
+                proto="TCP"
+ 
+                # State colour
+                local state_col
+                case "$state" in
+                    ESTAB*)     state_col="$SUCCESS" ;;
+                    TIME-WAIT)  state_col="$MUTED"   ;;
+                    CLOSE-WAIT) state_col="$WARNING" ;;
+                    LISTEN)     state_col="$INFO"     ;;
+                    *)          state_col="$MUTED"    ;;
+                esac
+ 
+                # Clean up process field
+                proc=$(echo "$proc" | grep -oP 'users:\(\("\K[^"]+' | head -1)
+                proc="${proc:---}"
+ 
+                printf "  ${MUTED}%-8s${NC} ${VALUE}%-22.22s${NC} ${VALUE}%-22.22s${NC} ${state_col}%-12s${NC} ${MUTED}%s${NC}\n" \
+                    "$proto" "$local_addr" "$remote_addr" "$state" "$proc"
+            done
+    elif command -v netstat &>/dev/null; then
+        netstat -tnp 2>/dev/null | tail -n +3 | head -15 \
+            | awk '{printf "  TCP      %-22.22s %-22.22s %-12s %s\n", $4, $5, $6, $7}'
+    else
+        echo -e "  ${MUTED}  ss and netstat not available${NC}"
+    fi
+ 
+    # Connection count summary
+    echo
+    if command -v ss &>/dev/null; then
+        local estab_count timewait_count listen_count
+        estab_count=$(ss -tn 2>/dev/null | grep -c ESTAB || echo 0)
+        timewait_count=$(ss -tn 2>/dev/null | grep -c TIME-WAIT || echo 0)
+        listen_count=$(ss -tln 2>/dev/null | tail -n +2 | wc -l)
+ 
+        printf "  ${LABEL}Established:${NC} ${SUCCESS}%-6s${NC}  " "$estab_count"
+        printf "${LABEL}TIME-WAIT:${NC} ${MUTED}%-6s${NC}  " "$timewait_count"
+        printf "${LABEL}Listening:${NC} ${INFO}%s${NC}\n" "$listen_count"
+    fi
+ 
+    echo
     pause
 }
-
+ 
 main() {
     check_osi_model
     check_tcpip_model

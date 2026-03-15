@@ -13,140 +13,393 @@ source "$PROJECT_ROOT/lib/init.sh"
 #  SSH HARDENING
 check_ssh_hardening() {
     header "SSH Hardening — Comprehensive Audit"
-
+ 
+    #  1. PROTOCOL OVERVIEW 
     section "SSH Protocol Overview"
     cat << 'INFO'
-  SSH (Secure Shell) — RFC 4251-4256. Default port 22 (TCP).
-
+  SSH (Secure Shell) — RFC 4251–4256.  Default port 22/TCP.
+ 
   Protocol layers:
-    1. Transport Layer  — key exchange, encryption, MAC, compression
-    2. User Auth Layer  — authenticates the client to the server
-    3. Connection Layer — multiplexes the encrypted channel into sessions
-
-  Key Exchange Algorithms (ordered preference):
-    curve25519-sha256 — ECDH, modern (recommended)
-    ecdh-sha2-nistp521/384/256 — NIST curves
-    diffie-hellman-group16-sha512 — safe DH (4096-bit group)
-    diffie-hellman-group14-sha256 — acceptable minimum
-
-  Host Key Types (server identity):
-    ed25519 — best: small, fast, resistant to timing attacks
-    ecdsa   — acceptable
-    rsa-sha2-512/256 — acceptable (4096-bit key recommended)
-    dsa     — DEPRECATED (DSS, 1024-bit max)
-
-  Cipher Recommendations (NIST/Mozilla Modern):
-    chacha20-poly1305@openssh.com
-    aes256-gcm@openssh.com
-    aes128-gcm@openssh.com
+    1. Transport Layer   — key exchange, encryption, MAC, compression
+    2. User Auth Layer   — authenticates the client to the server
+    3. Connection Layer  — multiplexes the encrypted channel into logical sessions
+ 
+  Key Exchange Algorithms (preference order):
+    curve25519-sha256          — ECDH over Curve25519 (RECOMMENDED)
+    ecdh-sha2-nistp521/384/256 — NIST curves (acceptable)
+    diffie-hellman-group16-sha512 — 4096-bit DH group (safe fallback)
+    diffie-hellman-group14-sha256 — 2048-bit (minimum acceptable)
+    ⚠ diffie-hellman-group1-sha1  — DEPRECATED (Logjam-vulnerable)
+ 
+  Host Key Algorithms:
+    ed25519     — best: compact, fast, timing-attack resistant
+    rsa-sha2-512/256 — acceptable (≥4096-bit key strongly recommended)
+    ecdsa       — acceptable
+    ⚠ dsa       — DEPRECATED (1024-bit max, broken)
+    ⚠ ssh-rsa   — SHA-1 signature deprecated in OpenSSH 8.8+
+ 
+  Cipher Suite (NIST/Mozilla Modern profile):
+    chacha20-poly1305@openssh.com — preferred (hardware-independent AEAD)
+    aes256-gcm@openssh.com        — strong AEAD
+    aes128-gcm@openssh.com        — acceptable AEAD
+    ⚠ arcfour / 3des-cbc / blowfish — INSECURE, never use
+ 
+  MAC Algorithms (Encrypt-then-MAC only):
+    hmac-sha2-512-etm@openssh.com  — preferred
+    hmac-sha2-256-etm@openssh.com  — acceptable
+    ⚠ hmac-md5 / hmac-sha1         — DEPRECATED
 INFO
-
+ 
+    #  2. sshd_config AUDIT 
     section "sshd_config Security Audit"
+ 
     local sshd_conf="/etc/ssh/sshd_config"
-    if [[ ! -r "$sshd_conf" ]]; then
-        echo -e "  ${MUTED}/etc/ssh/sshd_config not readable (requires sudo or not installed)${NC}"
+    local sshd_dir="/etc/ssh/sshd_config.d"
+ 
+    # Build a merged effective config: main file + drop-in directory
+    local effective_config
+    effective_config=$(mktemp)
+    trap 'rm -f "$effective_config"' RETURN
+ 
+    if [[ -r "$sshd_conf" ]]; then
+        cat "$sshd_conf" > "$effective_config"
     else
-        echo
-        declare -A expected_settings=(
-            ["PermitRootLogin"]="no"
-            ["PasswordAuthentication"]="no"
-            ["PubkeyAuthentication"]="yes"
-            ["PermitEmptyPasswords"]="no"
-            ["ChallengeResponseAuthentication"]="no"
-            ["X11Forwarding"]="no"
-            ["MaxAuthTries"]="3"
-            ["LoginGraceTime"]="30"
-            ["AllowAgentForwarding"]="no"
-            ["AllowTcpForwarding"]="no"
-            ["Protocol"]="2"
-        )
-
-        printf "  ${BOLD}%-32s %-20s %-20s %s${NC}\n" \
-            "Directive" "Current" "Recommended" "Status"
-        printf "  ${DARK_GRAY}%-32s %-20s %-20s %s${NC}\n" \
-            "$(printf '─%.0s' {1..31})" "$(printf '─%.0s' {1..19})" \
-            "$(printf '─%.0s' {1..19})" "──────"
-
-        for directive in "${!expected_settings[@]}"; do
-            local current recommended="${expected_settings[$directive]}"
-            current=$(grep -iE "^${directive}\s" "$sshd_conf" 2>/dev/null \
-                | awk '{print $2}' | head -1)
-            current="${current:-[not set]}"
-            local status_sym status_col
-            if [[ "${current,,}" == "${recommended,,}" ]]; then
-                status_sym="✔" status_col="$SUCCESS"
-            else
-                status_sym="✘" status_col="$FAILURE"
-            fi
-            printf "  ${LABEL}%-32s${NC} ${MUTED}%-20s${NC} %-20s ${status_col}%s${NC}\n" \
-                "$directive" "$current" "$recommended" "$status_sym"
+        echo -e "  ${FAILURE}[!] /etc/ssh/sshd_config not readable — run as root for a full audit.${NC}"
+    fi
+ 
+    # Include drop-in files (OpenSSH ≥ 8.2 pattern)
+    if [[ -d "$sshd_dir" ]]; then
+        for dropin in "$sshd_dir"/*.conf; do
+            [[ -r "$dropin" ]] && cat "$dropin" >> "$effective_config"
         done
     fi
-
+ 
+    # Helper: extract the *last* (effective) value for a directive
+    # OpenSSH uses last-wins for most directives.
+    _sshd_get() {
+        local directive="$1"
+        grep -iE "^[[:space:]]*${directive}[[:space:]]" "$effective_config" 2>/dev/null \
+            | awk '{print $2}' | tail -1
+    }
+ 
+    # Directives: [name]="recommended_value|risk_if_wrong|note"
+    # Format: recommended | risk_level (critical/high/medium/low) | short note
+    declare -A directives=(
+        ["PermitRootLogin"]="no|critical|Direct root login allows privilege escalation with no audit trail"
+        ["PasswordAuthentication"]="no|critical|Passwords are brute-forceable; require key-based auth"
+        ["PubkeyAuthentication"]="yes|critical|Must be enabled when passwords are disabled"
+        ["PermitEmptyPasswords"]="no|critical|Empty passwords allow trivial authentication bypass"
+        ["ChallengeResponseAuthentication"]="no|high|Can fall back to keyboard-interactive password auth"
+        ["KbdInteractiveAuthentication"]="no|high|Newer alias for ChallengeResponseAuthentication"
+        ["X11Forwarding"]="no|high|Remote X11 exposes local display; often unnecessary"
+        ["AllowAgentForwarding"]="no|medium|Leaked agent socket can be abused on the remote host"
+        ["AllowTcpForwarding"]="no|medium|Prevents using SSH as a general-purpose proxy/tunnel"
+        ["PermitTunnel"]="no|medium|Disables layer-3 VPN-style tunnelling over SSH"
+        ["MaxAuthTries"]="3|medium|Limits brute-force attempts per connection"
+        ["LoginGraceTime"]="30|medium|Reduces exposure from half-open unauthenticated sessions"
+        ["MaxSessions"]="3|low|Caps multiplexed sessions per connection"
+        ["UsePAM"]="yes|low|Required for account/session PAM modules; keep enabled"
+        ["PrintLastLog"]="yes|low|Displays last login info — useful for detecting unauthorised access"
+        ["Banner"]="\/etc\/issue.net|low|Legal warning banner deters casual attackers"
+        ["LogLevel"]="VERBOSE|low|Captures key fingerprints in auth log for forensics"
+        ["Protocol"]="2|critical|Protocol 1 is cryptographically broken (never use)"
+    )
+ 
+    # Print table header
+    echo
+    printf "  ${BOLD}${TITLE}%-34s %-18s %-18s %-8s %s${NC}\n" \
+        "Directive" "Current" "Recommended" "Risk" "Status"
+    printf "  ${DARK_GRAY}%s${NC}\n" \
+        "$(printf '%.0s' {1..90})"
+ 
+    local pass_count=0 fail_count=0 unknown_count=0
+ 
+    # Risk colour map
+    _risk_colour() {
+        case "$1" in
+            critical) echo "$FAILURE"  ;;
+            high)     echo "$WARNING"  ;;
+            medium)   echo "$AMBER"    ;;
+            low)      echo "$MUTED"    ;;
+            *)        echo "$NC"       ;;
+        esac
+    }
+ 
+    for directive in $(echo "${!directives[@]}" | tr ' ' '\n' | sort); do
+        local meta="${directives[$directive]}"
+        local recommended risk note
+        IFS='|' read -r recommended risk note <<< "$meta"
+ 
+        local current
+        current=$(_sshd_get "$directive")
+        current="${current:-[not set]}"
+ 
+        local status_sym status_col risk_col
+        risk_col=$(_risk_colour "$risk")
+ 
+        if [[ "$current" == "[not set]" ]]; then
+            status_sym="?" ; status_col="$MUTED" ; (( unknown_count++ ))
+        elif [[ "${current,,}" == "${recommended,,}" ]]; then
+            status_sym="✔" ; status_col="$SUCCESS" ; (( pass_count++ ))
+        else
+            status_sym="✘" ; status_col="$FAILURE" ; (( fail_count++ ))
+        fi
+ 
+        printf "  ${LABEL}%-34s${NC}${MUTED}%-18s${NC}%-18s${risk_col}%-8s${NC}${status_col}%s${NC}\n" \
+            "$directive" "$current" "$recommended" "[$risk]" "$status_sym"
+    done
+ 
+    echo
+    printf "  Summary:  ${SUCCESS}%d passed${NC}  ${FAILURE}%d failed${NC}  ${MUTED}%d not set${NC}\n" \
+        "$pass_count" "$fail_count" "$unknown_count"
+ 
+    #  3. SSH PORT CHECK 
+    section "SSH Port & Listener Analysis"
+ 
+    local ssh_port
+    ssh_port=$(_sshd_get "Port")
+    ssh_port="${ssh_port:-22}"
+ 
+    if [[ "$ssh_port" == "22" ]]; then
+        echo -e "  ${WARNING}[~] SSH is on default port 22 — consider a non-standard port to reduce noise${NC}"
+    else
+        echo -e "  ${SUCCESS}[+] SSH is on non-default port ${ssh_port}${NC}"
+    fi
+ 
+    echo
+    echo -e "  ${LABEL}Active SSH listeners:${NC}"
+    if command -v ss &>/dev/null; then
+        ss -tlnp 2>/dev/null | grep -E ":${ssh_port}|:22 " | sed 's/^/    /' \
+            || echo -e "  ${MUTED}  (none found with ss)${NC}"
+    elif command -v netstat &>/dev/null; then
+        netstat -tlnp 2>/dev/null | grep -E ":${ssh_port}|:22 " | sed 's/^/    /' \
+            || echo -e "  ${MUTED}  (none found with netstat)${NC}"
+    else
+        echo -e "  ${MUTED}  ss/netstat not available${NC}"
+    fi
+ 
+    #  4. KEY MANAGEMENT AUDIT 
     section "SSH Key Management Audit"
-    echo -e "${INFO}Authorized keys files on this system:${NC}"
-    find /home /root -name "authorized_keys" 2>/dev/null | while read -r keyfile; do
-        local owner keycount perms perm_col
+ 
+    echo -e "  ${LABEL}Authorized keys files:${NC}"
+    echo
+ 
+    local found_keys=0
+    while IFS= read -r keyfile; do
+        (( found_keys++ ))
+        local owner keycount perms perm_col age_note
         owner=$(stat -c '%U' "$keyfile" 2>/dev/null || echo "unknown")
-        keycount=$(grep -c "^ssh-" "$keyfile" 2>/dev/null || echo 0)
+        keycount=$(grep -cE "^(ssh-|ecdsa-|sk-)" "$keyfile" 2>/dev/null || echo 0)
         perms=$(stat -c '%a' "$keyfile" 2>/dev/null)
-        [[ "$perms" == "600" || "$perms" == "644" ]] && perm_col="$SUCCESS" || perm_col="$WARNING"
-        printf "  ${CYAN}%-45s${NC} owner: ${LABEL}%-12s${NC} keys: ${GOLD}%-3s${NC} perms: ${perm_col}%s${NC}\n" \
+ 
+        # Permissions check: 600 is ideal; 644 tolerable; anything else is a risk
+        case "$perms" in
+            600) perm_col="$SUCCESS" ;;
+            644) perm_col="$WARNING" ;;
+            *)   perm_col="$FAILURE" ;;
+        esac
+ 
+        # Flag files with keys not owned by the directory's user
+        local homedir_user
+        homedir_user=$(echo "$keyfile" | cut -d/ -f3)
+ 
+        printf "  ${CYAN}%-48s${NC} owner:${LABEL}%-12s${NC} keys:${GOLD}%-4s${NC} perms:${perm_col}%s${NC}\n" \
             "$keyfile" "$owner" "$keycount" "$perms"
-    done
-
+ 
+        # Warn on insecure permissions
+        [[ "$perms" != "600" ]] && \
+            echo -e "    ${WARNING}⚠ Permissions $perms on $keyfile — recommend 600${NC}"
+ 
+        # Scan for deprecated key types in the file
+        if grep -qE "^ssh-dss " "$keyfile" 2>/dev/null; then
+            echo -e "    ${FAILURE}✘ DSA key found — DEPRECATED and insecure${NC}"
+        fi
+        if grep -qE "^ssh-rsa " "$keyfile" 2>/dev/null; then
+            echo -e "    ${WARNING}⚠ RSA key (ssh-rsa) found — verify key size ≥ 4096 bits${NC}"
+        fi
+    done < <(find /home /root -name "authorized_keys" 2>/dev/null)
+ 
+    [[ $found_keys -eq 0 ]] && echo -e "  ${MUTED}  No authorized_keys files found${NC}"
+ 
+    #  5. HOST KEY FINGERPRINTS 
     echo
-    echo -e "${INFO}SSH host key fingerprints:${NC}"
+    echo -e "  ${LABEL}SSH host key fingerprints:${NC}"
+    local hk_found=0
     for keyfile in /etc/ssh/ssh_host_*_key.pub; do
-        [[ -f "$keyfile" ]] && ssh-keygen -lf "$keyfile" 2>/dev/null | sed 's/^/  /'
+        [[ -f "$keyfile" ]] || continue
+        (( hk_found++ ))
+        local fp algo
+        fp=$(ssh-keygen -lf "$keyfile" 2>/dev/null)
+        algo=$(echo "$fp" | awk '{print $NF}' | tr -d '()')
+ 
+        case "${algo,,}" in
+            ed25519)      echo -e "  ${SUCCESS}✔${NC}  $fp" ;;
+            rsa)
+                local bits
+                bits=$(echo "$fp" | awk '{print $1}')
+                if (( bits >= 4096 )); then
+                    echo -e "  ${SUCCESS}✔${NC}  $fp"
+                else
+                    echo -e "  ${WARNING}⚠${NC}  $fp  ${WARNING}[RSA < 4096 bits — upgrade recommended]${NC}"
+                fi
+                ;;
+            dsa)          echo -e "  ${FAILURE}✘${NC}  $fp  ${FAILURE}[DEPRECATED — remove immediately]${NC}" ;;
+            *)            echo -e "  ${INFO}i${NC}  $fp" ;;
+        esac
     done
-
+    [[ $hk_found -eq 0 ]] && echo -e "  ${MUTED}  No host public key files found${NC}"
+ 
+    #  6. RUNNING PROCESSES 
     echo
-    echo -e "${INFO}Current SSH server processes:${NC}"
-    pgrep -a sshd 2>/dev/null | head -5 | sed 's/^/  /' \
-        || echo -e "  ${MUTED}sshd not running${NC}"
-
+    echo -e "  ${LABEL}Active sshd process(es):${NC}"
+    if pgrep -x sshd &>/dev/null; then
+        pgrep -a sshd 2>/dev/null | head -5 | while read -r pid cmdline; do
+            echo -e "  ${SUCCESS}✔${NC}  PID ${GOLD}${pid}${NC}  ${MUTED}${cmdline}${NC}"
+        done
+    else
+        echo -e "  ${MUTED}  sshd is not currently running${NC}"
+    fi
+ 
+    # OpenSSH version info
+    local ssh_version
+    ssh_version=$(sshd -V 2>&1 | head -1)
+    [[ -n "$ssh_version" ]] && echo -e "\n  ${LABEL}Version:${NC}  ${VALUE}${ssh_version}${NC}"
+ 
+    #  7. FAIL2BAN / BRUTE-FORCE PROTECTION 
+    section "Brute-Force Protection"
+ 
+    if command -v fail2ban-client &>/dev/null; then
+        echo -e "  ${SUCCESS}✔${NC}  fail2ban is installed"
+        if fail2ban-client status sshd &>/dev/null; then
+            local banned
+            banned=$(fail2ban-client status sshd 2>/dev/null \
+                | grep "Currently banned" | awk -F: '{print $2}' | xargs)
+            echo -e "  ${LABEL}  sshd jail — currently banned IPs:${NC} ${GOLD}${banned:-0}${NC}"
+        else
+            echo -e "  ${WARNING}⚠${NC}  fail2ban sshd jail is not active — consider enabling it"
+        fi
+    else
+        echo -e "  ${WARNING}⚠${NC}  fail2ban not found — brute-force protection is recommended"
+        echo -e "  ${MUTED}  Install: sudo apt install fail2ban${NC}"
+    fi
+ 
+    # Check for sshguard as alternative
+    if command -v sshguard &>/dev/null; then
+        echo -e "  ${SUCCESS}✔${NC}  sshguard is installed (alternative brute-force protection)"
+    fi
+ 
+    #  8. RECENT AUTH LOG SCAN 
+    section "Recent Authentication Events"
+ 
+    local auth_log=""
+    for candidate in /var/log/auth.log /var/log/secure /var/log/audit/audit.log; do
+        [[ -r "$candidate" ]] && auth_log="$candidate" && break
+    done
+ 
+    if [[ -n "$auth_log" ]]; then
+        echo -e "  ${LABEL}Log source:${NC} $auth_log"
+        echo
+ 
+        local failed_count
+        failed_count=$(grep -c "Failed password\|authentication failure\|FAILED LOGIN" \
+            "$auth_log" 2>/dev/null || echo 0)
+ 
+        local accepted_count
+        accepted_count=$(grep -c "Accepted publickey\|Accepted password" \
+            "$auth_log" 2>/dev/null || echo 0)
+ 
+        local root_attempts
+        root_attempts=$(grep -c "Invalid user root\|Failed.*root\|user root" \
+            "$auth_log" 2>/dev/null || echo 0)
+ 
+        printf "  ${LABEL}%-30s${NC}${GOLD}%s${NC}\n"  "Failed auth attempts:"   "$failed_count"
+        printf "  ${LABEL}%-30s${NC}${SUCCESS}%s${NC}\n" "Successful logins:"    "$accepted_count"
+        printf "  ${LABEL}%-30s${NC}${FAILURE}%s${NC}\n" "Attempts targeting root:" "$root_attempts"
+ 
+        # Top attacking IPs (last 500 lines to keep it fast)
+        echo
+        echo -e "  ${LABEL}Top source IPs (failed auth — last 500 log lines):${NC}"
+        tail -500 "$auth_log" 2>/dev/null \
+            | grep -E "Failed password|Invalid user" \
+            | grep -oP 'from \K[\d.]+' \
+            | sort | uniq -c | sort -rn | head -5 \
+            | while read -r count ip; do
+                printf "    ${FAILURE}%-5s${NC}  ${VALUE}%s${NC}\n" "$count" "$ip"
+              done
+    else
+        echo -e "  ${MUTED}  Auth log not readable — run as root to include this section${NC}"
+    fi
+ 
+    #  9. HARDENED BASELINE CONFIG 
     section "Recommended sshd_config Hardened Baseline"
     cat << 'CONF'
-  # /etc/ssh/sshd_config — Hardened baseline
-  Protocol 2
-  Port 22                          # Consider changing to non-standard
-  ListenAddress 0.0.0.0
-
+  # /etc/ssh/sshd_config — Hardened Baseline (OpenSSH ≥ 8.2)
+  # Generated by Networking & Cybersecurity Toolkit
+ 
+  # Network
+  Port 22                            # Change to a non-standard port to reduce noise
+  ListenAddress 0.0.0.0              # Restrict to specific interface if possible
+  AddressFamily inet                 # Force IPv4 only (use 'any' if IPv6 is needed)
+ 
+  # Protocol & host keys
+  Protocol 2                         # Protocol 1 is cryptographically broken
+  HostKey /etc/ssh/ssh_host_ed25519_key
+  HostKey /etc/ssh/ssh_host_rsa_key  # RSA key must be ≥ 4096 bits
+ 
+  # Cryptography — Mozilla Modern profile
+  KexAlgorithms    curve25519-sha256,ecdh-sha2-nistp521,diffie-hellman-group16-sha512
+  Ciphers          chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+  MACs             hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+  HostKeyAlgorithms ssh-ed25519,rsa-sha2-512,rsa-sha2-256
+ 
   # Authentication
-  PermitRootLogin no
-  PasswordAuthentication no
-  PubkeyAuthentication yes
-  PermitEmptyPasswords no
-  ChallengeResponseAuthentication no
-  AuthenticationMethods publickey
-  MaxAuthTries 3
-  LoginGraceTime 30s
-  MaxSessions 3
-
-  # Cryptography (Mozilla Modern profile)
-  KexAlgorithms curve25519-sha256,ecdh-sha2-nistp521
-  Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com
-  MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
-  HostKeyAlgorithms ssh-ed25519,rsa-sha2-512
-
-  # Forwarding (disable unless needed)
-  AllowTcpForwarding no
+  PermitRootLogin                  no
+  PasswordAuthentication           no
+  PubkeyAuthentication             yes
+  PermitEmptyPasswords             no
+  ChallengeResponseAuthentication  no
+  KbdInteractiveAuthentication     no
+  AuthenticationMethods            publickey
+  MaxAuthTries                     3
+  LoginGraceTime                   30
+  MaxSessions                      3
+ 
+  # Forwarding (disable unless explicitly required)
+  AllowTcpForwarding   no
   AllowAgentForwarding no
-  X11Forwarding no
-  PermitTunnel no
-
-  # Access control
-  AllowUsers deploy admin          # Whitelist only
-
+  X11Forwarding        no
+  PermitTunnel         no
+  GatewayPorts         no
+ 
+  # Access control — whitelist only
+  # AllowUsers deploy admin          # Uncomment and set to your allowed users
+  # AllowGroups sshusers             # Alternative: control via group
+ 
+  # Session management
+  ClientAliveInterval  300          # Send keepalive every 5 min
+  ClientAliveCountMax  2            # Disconnect after 10 min of inactivity
+  TCPKeepAlive         no           # Rely on ClientAlive, not TCP keepalive
+ 
   # Logging
-  LogLevel VERBOSE
+  LogLevel       VERBOSE            # Logs key fingerprints — essential for forensics
   SyslogFacility AUTH
-
-  # Disconnect idle sessions
-  ClientAliveInterval 300
-  ClientAliveCountMax 2
+ 
+  # Miscellaneous hardening
+  UsePAM              yes           # Required for PAM account/session modules
+  PrintLastLog        yes           # Show last login on connect
+  Banner              /etc/issue.net
+  PermitUserEnvironment no          # Prevent env var injection via ~/.ssh/environment
+  AcceptEnv           LANG LC_*    # Restrict accepted env vars to locale only
+  Compression         no           # Compression before encryption is a security risk
+  UseDNS              no           # Speeds up login; avoids DNS-based auth
 CONF
+ 
+    echo
+    echo -e "  ${AMBER}Post-change verification:${NC}"
+    echo -e "  ${MUTED}  1. sudo sshd -t               # Test config for syntax errors${NC}"
+    echo -e "  ${MUTED}  2. sudo systemctl reload sshd  # Apply without dropping sessions${NC}"
+    echo -e "  ${MUTED}  3. Test from a NEW terminal before closing the current session${NC}"
+    echo
 }
 
 #  PORT KNOCKING
@@ -206,32 +459,32 @@ check_segmentation() {
   Goal: limit blast radius of a breach (contain lateral movement).
 
   Defence in Depth — layered controls:
-    ┌────────────────────────────────────────────────────┐
+    ┌┐
     │                 Internet                           │
-    └──────────────────┬─────────────────────────────────┘
+    └┬┘
                        │
               [Edge Firewall / NGFW]
                        │
-    ┌──────────────────┴─────────────────────────────────┐
+    ┌┴┐
     │                   DMZ                              │
     │   Web Servers │ Mail Relay │ DNS Auth │ VPN GW     │
-    └──────────────────┬─────────────────────────────────┘
+    └┬┘
                        │
               [Internal Firewall]
                        │
-    ┌──────────────────┴─────────────────────────────────┐
+    ┌┴┐
     │              Internal Network                      │
-    │  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐│
+    │  ┌┐ ┌┐ ┌┐│
     │  │  Corp LAN│ │  Dev VLAN│ │  Database VLAN       ││
     │  │ VLAN 10  │ │ VLAN 20  │ │  VLAN 30             ││
-    │  └──────────┘ └──────────┘ └──────────────────────┘│
-    └────────────────────────────────────────────────────┘
+    │  └┘ └┘ └┘│
+    └┘
 INFO
 
     section "VLAN Segmentation Zones"
     echo
     printf "  ${BOLD}%-8s %-18s %-16s %s${NC}\n" "VLAN" "Zone" "Subnet" "Systems"
-    printf "  ${DARK_GRAY}%-8s %-18s %-16s %s${NC}\n" "───────" "─────────────────" "───────────────" "────────────────────"
+    printf "  ${DARK_GRAY}%-8s %-18s %-16s %s${NC}\n" "" "" "" ""
     while IFS='|' read -r vlan zone subnet systems; do
         printf "  ${CYAN}%-8s${NC} ${GOLD}%-18s${NC} ${MUTED}%-16s${NC} %s\n" \
             "$vlan" "$zone" "$subnet" "$systems"
@@ -315,7 +568,7 @@ check_vpn() {
     printf "  ${BOLD}%-14s %-8s %-10s %-12s %-10s %s${NC}\n" \
         "Protocol" "Port" "Crypto" "Performance" "NAT-T" "Use Case"
     printf "  ${DARK_GRAY}%-14s %-8s %-10s %-12s %-10s %s${NC}\n" \
-        "─────────────" "───────" "─────────" "───────────" "─────────" "──────────────"
+        "" "" "" "" "" ""
     while IFS='|' read -r proto port crypto perf nat use; do
         printf "  ${CYAN}%-14s${NC} ${MUTED}%-8s${NC} %-10s ${GOLD}%-12s${NC} %-10s ${MUTED}%s${NC}\n" \
             "$proto" "$port" "$crypto" "$perf" "$nat" "$use"
@@ -525,7 +778,7 @@ check_hardening_summary() {
     fi
 
     echo
-    echo -e "  ${DARK_GRAY}$(printf '─%.0s' {1..50})${NC}"
+    echo -e "  ${DARK_GRAY}$(printf '%.0s' {1..50})${NC}"
     printf "  ${SUCCESS}Passed: %-3s${NC}  ${FAILURE}Failed: %-3s${NC}  ${MUTED}Total: %s${NC}\n" \
         "$checks_pass" "$checks_fail" "$(( checks_pass + checks_fail ))"
 

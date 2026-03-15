@@ -11,56 +11,454 @@ source "$PROJECT_ROOT/lib/init.sh"
 
 # FIREWALL TYPES
 check_firewall_types() {
-    header "Firewall Types — Architecture Overview"
-
+    header "Firewall Types — Architecture & Live Audit"
+ 
+    #  1. ARCHITECTURE REFERENCE 
+    section "Firewall Generations & Architecture"
     cat << 'INFO'
-  Generation 1 — Packet Filtering (Layer 3/4)
-    Inspects IP headers and TCP/UDP ports.
-    Stateless — each packet evaluated independently.
-    Fast; no TCP state tracking.
-    Example: iptables with basic INPUT/OUTPUT rules.
-
-  Generation 2 — Stateful Inspection (Layer 3/4)
-    Tracks TCP/UDP/ICMP connection state tables.
-    Allows return traffic for established connections automatically.
-    Blocks unsolicited inbound packets.
-    Example: iptables conntrack, pfSense, Cisco ASA.
-
-  Generation 3 — Application Layer Gateway (Layer 7)
-    Inspects payload content; understands protocols (HTTP, FTP, DNS).
-    Can block specific URL paths, file types, commands.
-    Performs deep packet inspection (DPI).
-    Example: Squid proxy, Web Application Firewall (WAF).
-
-  Next-Generation Firewall (NGFW):
-    Combines stateful + DPI + application ID + user identity + IPS + TLS inspection.
-    Examples: Palo Alto NGFW, Fortinet FortiGate, pfSense + Snort, OPNsense + Suricata.
-
-  Firewall Deployment Positions:
-    Perimeter  — between internet and DMZ (north-south traffic)
-    Internal   — between network segments (east-west traffic)
-    Host-based — on each server/workstation (iptables, UFW, Windows Firewall)
-    Cloud      — Security Groups (AWS), NSG (Azure), Firewall Policies (GCP)
+  ┌
+  │  Generation 1 — Packet Filtering (Layer 3/4)                            │
+  └
+  OSI layers inspected:  3 (IP) and 4 (TCP/UDP/ICMP)
+  State awareness:       Stateless — each packet evaluated in isolation
+  Match criteria:        Source/destination IP, port, protocol, interface
+  Performance:           Very fast; minimal memory (no state tables)
+ 
+  Limitations:
+    • Cannot distinguish return traffic from new connections
+    • Spoofed packets pass if header fields match rules
+    • No payload inspection — cannot block malicious HTTP inside allowed port 80
+    • TCP fragmentation attacks can bypass naive rules
+ 
+  Examples:  iptables (raw filter table), BSD ipf, classic ACLs on Cisco IOS
+  Use today: Edge rate-limiting, coarse pre-filtering before stateful engine
+ 
+  ┌
+  │  Generation 2 — Stateful Inspection (Layer 3/4)                         │
+  └
+  OSI layers inspected:  3 and 4
+  State awareness:       Full TCP/UDP/ICMP connection tracking
+  Match criteria:        All Gen 1 + connection state (NEW, ESTABLISHED, RELATED)
+ 
+  How it works:
+    • Maintains a connection state table (conntrack)
+    • ESTABLISHED / RELATED return traffic allowed automatically
+    • Unsolicited inbound packets blocked without explicit ACCEPT rule
+    • Tracks TCP flags (SYN, ACK, FIN, RST) to validate session lifecycle
+ 
+  Limitations:
+    • Still blind to application-layer content
+    • State table is a resource — DoS possible via SYN flood (exhausts entries)
+    • Encrypted traffic (TLS) is opaque — content unknown
+ 
+  Examples:  iptables + conntrack, nftables, pfSense, OPNsense, Cisco ASA (basic)
+  Use today: Standard perimeter and host-based firewall baseline
+ 
+  ┌
+  │  Generation 3 — Application Layer Gateway / Proxy (Layer 7)             │
+  └
+  OSI layers inspected:  3–7 (full stack)
+  State awareness:       Full stateful + application protocol parsing
+  Match criteria:        URLs, HTTP methods, DNS names, file types, commands,
+                         FTP verbs, SMTP sender/recipient, protocol anomalies
+ 
+  How it works:
+    • Acts as a proxy — terminates and re-originates connections
+    • Fully parses application protocols; understands semantic content
+    • Deep Packet Inspection (DPI): reconstructs streams, inspects payloads
+    • Can modify or block individual commands within an allowed session
+ 
+  Limitations:
+    • High CPU/memory overhead (full proxy processing per connection)
+    • TLS inspection requires MITM certificate → privacy implications
+    • Application protocol support must be explicitly implemented
+    • Proxy latency added to every transaction
+ 
+  Examples:  Squid (HTTP proxy), mod_security (WAF), Snort/Suricata (IDS/IPS),
+             DNS RPZ, FTP ALG in stateful firewalls
+  Use today: Web filtering, WAF in front of web apps, DPI at enterprise perimeter
+ 
+  ┌
+  │  Next-Generation Firewall (NGFW)                                         │
+  └
+  An NGFW integrates all previous generations plus:
+    • Application identification (App-ID): recognise apps regardless of port
+      e.g. detect Slack/Zoom/BitTorrent even over port 443
+    • User identity integration (User-ID): link traffic to AD/LDAP usernames
+    • Integrated IPS: signature + anomaly-based inline threat prevention
+    • TLS/SSL inspection: decrypt → inspect → re-encrypt (breaks end-to-end)
+    • URL/web filtering: category-based blocking with cloud lookup
+    • Sandboxing / threat intelligence feeds (WildFire, FortiSandbox)
+    • Centralised policy management with logging to SIEM
+ 
+  Limitations:
+    • Expensive (hardware + licensing)
+    • TLS inspection introduces latency and certificate trust issues
+    • Complexity → misconfiguration risk
+    • Not all NGFWs inspect all protocols equally well
+ 
+  Examples:  Palo Alto PA-series, Fortinet FortiGate, Check Point NGFW,
+             Cisco Firepower, pfSense + Snort/Suricata, OPNsense + Zenarmor
+ 
+  ┌
+  │  Deployment Positions                                                    │
+  └
+  Perimeter (north-south)
+    Between the internet and the internal network / DMZ.
+    Filters ingress and egress; enforces NAT; blocks unsolicited inbound.
+    First and last line of network defence.
+ 
+  Internal segmentation (east-west)
+    Between internal network zones (servers ↔ workstations, VLAN-to-VLAN).
+    Limits lateral movement — attacker who breaches one segment is contained.
+    Zero Trust architecture depends on east-west enforcement.
+ 
+  DMZ (De-Militarised Zone)
+    A screened subnet between two firewalls.
+    Internet-facing servers (web, mail, DNS) placed here.
+    Compromise of DMZ host does not give direct access to internal LAN.
+ 
+  Host-based
+    Runs on each individual server or workstation.
+    iptables/nftables/ufw (Linux), Windows Defender Firewall, macOS pf.
+    Last line of defence if network-level firewalls are bypassed.
+    Essential for Zero Trust and microsegmentation.
+ 
+  Cloud / virtual
+    AWS Security Groups (stateful, per-ENI)
+    Azure Network Security Groups (NSG) + Azure Firewall
+    GCP VPC Firewall Rules + Cloud Armor (WAF)
+    These are attached to resources, not physical appliances.
+ 
+  ┌
+  │  Quick Comparison                                                        │
+  └
+  Type              Layer  State  App-aware  IPS  TLS-inspect  Overhead
+              
+  Packet filter     3–4    No     No         No   No           Minimal
+  Stateful          3–4    Yes    No         No   No           Low
+  App gateway/WAF   3–7    Yes    Yes        No   Partial      Medium
+  NGFW              3–7    Yes    Yes        Yes  Yes          High
 INFO
-
-    section "Firewall Software on This System"
+ 
+    #  2. INSTALLED FIREWALL SOFTWARE 
+    section "Installed Firewall Software"
     echo
-    for fw in iptables ip6tables nftables ufw firewalld pf ipfw; do
-        if cmd_exists "$fw"; then
+ 
+    # tool | display_name | version_flag | description
+    local fw_tools=(
+        "iptables|iptables|--version|Packet/stateful filter (IPv4) — classic Linux firewall"
+        "ip6tables|ip6tables|--version|Packet/stateful filter (IPv6)"
+        "nftables|nft|--version|Modern replacement for iptables/ip6tables/arptables/ebtables"
+        "ufw|ufw|--version|Uncomplicated Firewall — iptables/nftables frontend"
+        "firewalld|firewall-cmd|--version|Dynamic firewall daemon with zone model (RHEL/Fedora/CentOS)"
+        "ipset|ipset|--version|Set-based matching for iptables/nftables (IP/MAC/port sets)"
+        "nmap|nmap|--version|Port scanner — useful for validating firewall rules"
+        "fail2ban|fail2ban-client|--version|Intrusion prevention — bans IPs via iptables/nftables"
+        "hping3|hping3|--version|Packet crafting tool for firewall rule testing"
+        "pf|pfctl|-x|BSD Packet Filter (macOS / FreeBSD)"
+    )
+ 
+    local found_count=0
+    for entry in "${fw_tools[@]}"; do
+        local key display ver_flag desc
+        IFS='|' read -r key display ver_flag desc <<< "$entry"
+ 
+        if command -v "$display" &>/dev/null; then
+            (( found_count++ ))
             local ver
-            ver=$("$fw" --version 2>/dev/null | head -1 \
-                  || "$fw" -V 2>/dev/null | head -1 \
-                  || echo "present")
-            status_line ok "${fw}  —  ${ver}"
+            ver=$("$display" "$ver_flag" 2>/dev/null | head -1 \
+                  || echo "installed")
+            # Trim long version strings
+            ver=$(echo "$ver" | cut -c1-50)
+            printf "  ${SUCCESS}✔${NC}  ${LABEL}%-14s${NC}  ${VALUE}%-20s${NC}  ${MUTED}%s${NC}\n" \
+                "$display" "$ver" "$desc"
         fi
     done
-
+ 
+    [[ $found_count -eq 0 ]] && \
+        echo -e "  ${MUTED}  No recognised firewall tools found${NC}"
+ 
+    #  3. ACTIVE SERVICE STATUS 
+    section "Firewall Service Status"
     echo
-    echo -e "${INFO}Active firewall services:${NC}"
-    for svc in ufw firewalld iptables nftables; do
-        systemctl is-active "$svc" &>/dev/null && \
-            echo -e "  ${SUCCESS}${svc} is running${NC}"
+ 
+    local services=("ufw" "firewalld" "iptables" "nftables" "fail2ban")
+ 
+    for svc in "${services[@]}"; do
+        # Skip if the binary isn't even installed
+        local svc_bin
+        case "$svc" in
+            firewalld) svc_bin="firewall-cmd" ;;
+            *)         svc_bin="$svc" ;;
+        esac
+        command -v "$svc_bin" &>/dev/null || continue
+ 
+        local active enabled
+        active=$(systemctl is-active  "$svc" 2>/dev/null || echo "unknown")
+        enabled=$(systemctl is-enabled "$svc" 2>/dev/null || echo "unknown")
+ 
+        local active_col enabled_col
+        [[ "$active"  == "active"  ]] && active_col="$SUCCESS"  || active_col="$MUTED"
+        [[ "$enabled" == "enabled" ]] && enabled_col="$SUCCESS" || enabled_col="$MUTED"
+ 
+        printf "  ${LABEL}%-14s${NC}  active: ${active_col}%-10s${NC}  enabled: ${enabled_col}%s${NC}\n" \
+            "$svc" "$active" "$enabled"
     done
+ 
+    #  4. UFW DETAILED STATUS 
+    if command -v ufw &>/dev/null && systemctl is-active ufw &>/dev/null 2>&1; then
+        section "UFW Rule Summary"
+ 
+        local ufw_status
+        ufw_status=$(ufw status verbose 2>/dev/null)
+ 
+        # Overall policy
+        local default_in default_out
+        default_in=$(echo  "$ufw_status" | grep -oP 'Default:.*incoming \K\S+')
+        default_out=$(echo "$ufw_status" | grep -oP 'outgoing \(\K\S+' \
+                      || echo "$ufw_status" | grep -oP 'Default:.*outgoing \K\S+')
+ 
+        echo
+        local in_col out_col
+        [[ "${default_in,,}"  == "deny"  ]] && in_col="$SUCCESS"  || in_col="$FAILURE"
+        [[ "${default_out,,}" == "allow" ]] && out_col="$SUCCESS" || out_col="$MUTED"
+ 
+        printf "  ${LABEL}Default policy:${NC}  inbound: ${in_col}%-8s${NC}  outbound: ${out_col}%s${NC}\n" \
+            "${default_in:---}" "${default_out:---}"
+ 
+        echo
+        echo -e "  ${LABEL}Active rules:${NC}"
+        echo "$ufw_status" | grep -E "ALLOW|DENY|REJECT|LIMIT" | head -20 \
+            | while IFS= read -r rule_line; do
+                local rule_col
+                case "$rule_line" in
+                    *DENY*|*REJECT*) rule_col="$FAILURE" ;;
+                    *LIMIT*)         rule_col="$WARNING" ;;
+                    *ALLOW*)         rule_col="$SUCCESS" ;;
+                    *)               rule_col="$MUTED"   ;;
+                esac
+                printf "  ${rule_col}%s${NC}\n" "$rule_line"
+            done
+ 
+        local rule_count
+        rule_count=$(ufw status numbered 2>/dev/null | grep -c '^\[')
+        [[ -n "$rule_count" ]] && \
+            echo -e "\n  ${MUTED}  Total rules: ${GOLD}${rule_count}${NC}"
+    fi
+ 
+    #  5. FIREWALLD ZONE SUMMARY 
+    if command -v firewall-cmd &>/dev/null && systemctl is-active firewalld &>/dev/null 2>&1; then
+        section "firewalld Zone Summary"
+        echo
+ 
+        local active_zones
+        active_zones=$(firewall-cmd --get-active-zones 2>/dev/null)
+ 
+        if [[ -n "$active_zones" ]]; then
+            echo -e "  ${LABEL}Active zones:${NC}"
+            echo "$active_zones" | sed 's/^/    /'
+        fi
+ 
+        echo
+        local default_zone
+        default_zone=$(firewall-cmd --get-default-zone 2>/dev/null)
+        kv "  Default zone" "${default_zone:---}"
+ 
+        echo
+        echo -e "  ${LABEL}Services allowed in default zone (${default_zone}):${NC}"
+        firewall-cmd --zone="${default_zone}" --list-services 2>/dev/null \
+            | tr ' ' '\n' | while IFS= read -r svc_name; do
+                [[ -z "$svc_name" ]] && continue
+                printf "  ${SUCCESS}  %-20s${NC}\n" "$svc_name"
+              done
+ 
+        echo
+        echo -e "  ${LABEL}Open ports in default zone:${NC}"
+        local open_ports
+        open_ports=$(firewall-cmd --zone="${default_zone}" --list-ports 2>/dev/null)
+        if [[ -n "$open_ports" ]]; then
+            echo "$open_ports" | tr ' ' '\n' | while IFS= read -r port_entry; do
+                [[ -z "$port_entry" ]] && continue
+                printf "  ${WARNING}  %-20s${NC}\n" "$port_entry"
+            done
+        else
+            echo -e "  ${MUTED}    None explicitly listed${NC}"
+        fi
+    fi
+ 
+    #  6. NFTABLES RULESET SUMMARY 
+    if command -v nft &>/dev/null && systemctl is-active nftables &>/dev/null 2>&1; then
+        section "nftables Ruleset Summary"
+        echo
+ 
+        local nft_tables
+        nft_tables=$(nft list tables 2>/dev/null)
+ 
+        if [[ -z "$nft_tables" ]]; then
+            echo -e "  ${MUTED}  No nftables tables defined (empty ruleset)${NC}"
+        else
+            echo -e "  ${LABEL}Defined tables:${NC}"
+            echo "$nft_tables" | while IFS= read -r table_line; do
+                printf "  ${VALUE}  %s${NC}\n" "$table_line"
+            done
+ 
+            local chain_count rule_count
+            chain_count=$(nft list ruleset 2>/dev/null | grep -c '^[[:space:]]*chain ')
+            rule_count=$(nft list ruleset 2>/dev/null \
+                | grep -c '^[[:space:]]\+[^{}]' || echo 0)
+ 
+            echo
+            printf "  ${LABEL}Chains:${NC} ${GOLD}%s${NC}   ${LABEL}Rules:${NC} ${GOLD}%s${NC}\n" \
+                "${chain_count:-0}" "${rule_count:-0}"
+ 
+            echo
+            echo -e "  ${MUTED}  Full ruleset: sudo nft list ruleset${NC}"
+        fi
+    fi
+ 
+    #  7. RAW IPTABLES SNAPSHOT 
+    if command -v iptables &>/dev/null; then
+        # Only show if ufw/firewalld are not managing iptables
+        if ! systemctl is-active ufw      &>/dev/null 2>&1 && \
+           ! systemctl is-active firewalld &>/dev/null 2>&1; then
+            section "iptables Rule Snapshot (filter table)"
+            echo
+ 
+            local ipt_out
+            ipt_out=$(iptables -L -n --line-numbers 2>/dev/null)
+ 
+            if [[ -z "$ipt_out" ]]; then
+                echo -e "  ${MUTED}  No iptables rules (requires root for full output)${NC}"
+            else
+                # Chain policy summary
+                echo "$ipt_out" | grep '^Chain' | while IFS= read -r chain_line; do
+                    local chain_name policy
+                    chain_name=$(echo "$chain_line" | awk '{print $2}')
+                    policy=$(echo "$chain_line" | grep -oP 'policy \K\S+')
+ 
+                    local pol_col
+                    [[ "${policy,,}" == "drop"  ]] && pol_col="$SUCCESS"
+                    [[ "${policy,,}" == "accept" ]] && pol_col="$WARNING"
+                    [[ -z "$pol_col" ]] && pol_col="$MUTED"
+ 
+                    printf "  ${LABEL}Chain %-12s${NC}  default policy: ${pol_col}%s${NC}\n" \
+                        "$chain_name" "${policy:---}"
+                done
+ 
+                echo
+                local rule_total
+                rule_total=$(echo "$ipt_out" | grep -cE '^[0-9]')
+                echo -e "  ${LABEL}Total rules (filter table):${NC} ${GOLD}${rule_total}${NC}"
+                echo -e "  ${MUTED}  Full view: sudo iptables -L -nv --line-numbers${NC}"
+ 
+                # Check for default-ACCEPT on INPUT — common misconfiguration
+                local input_policy
+                input_policy=$(echo "$ipt_out" | grep '^Chain INPUT' \
+                    | grep -oP 'policy \K\S+')
+                if [[ "${input_policy,,}" == "accept" ]]; then
+                    echo
+                    echo -e "  ${FAILURE}[!] INPUT chain default policy is ACCEPT — explicitly allow and deny rules${NC}"
+                    echo -e "  ${MUTED}     Best practice: set policy to DROP, then whitelist needed services${NC}"
+                fi
+            fi
+ 
+            # IPv6 summary
+            if command -v ip6tables &>/dev/null; then
+                local ipt6_rules
+                ipt6_rules=$(ip6tables -L -n 2>/dev/null | grep -cE '^[0-9]' || echo 0)
+                local input6_policy
+                input6_policy=$(ip6tables -L INPUT -n 2>/dev/null \
+                    | grep '^Chain INPUT' | grep -oP 'policy \K\S+')
+ 
+                echo
+                printf "  ${LABEL}ip6tables rules:${NC} ${GOLD}%s${NC}   ${LABEL}INPUT policy:${NC} " \
+                    "$ipt6_rules"
+                if [[ "${input6_policy,,}" == "accept" ]]; then
+                    echo -e "${FAILURE}${input6_policy} [!] IPv6 INPUT is ACCEPT — review rules${NC}"
+                else
+                    echo -e "${SUCCESS}${input6_policy:-unknown}${NC}"
+                fi
+            fi
+        fi
+    fi
+ 
+    #  8. OPEN LISTENING PORTS 
+    section "Open Listening Ports (Firewall Exposure)"
+    echo
+    echo -e "  ${MUTED}  Ports here are exposed to the network. Verify each is intentional.${NC}"
+    echo
+ 
+    printf "  ${BOLD}${TITLE}%-8s %-8s %-22s %-8s %s${NC}\n" \
+        "Proto" "Port" "Address" "State" "Process"
+    printf "  ${DARK_GRAY}%s${NC}\n" "$(printf '%*s' 70 '' | tr ' ' '-')"
+ 
+    if command -v ss &>/dev/null; then
+        ss -tlnp 2>/dev/null | tail -n +2 | \
+        while IFS= read -r ss_line; do
+            local state local_addr proc
+            read -r state _ _ local_addr _ proc <<< "$ss_line"
+            [[ -z "$local_addr" ]] && continue
+ 
+            local port addr
+            # Handle IPv6 addresses like [::]:22
+            if [[ "$local_addr" =~ ^\[.*\]:([0-9]+)$ ]]; then
+                port="${BASH_REMATCH[1]}"
+                addr=$(echo "$local_addr" | grep -oP '^\[\K[^\]]+')
+            else
+                port="${local_addr##*:}"
+                addr="${local_addr%:*}"
+            fi
+ 
+            # Flag well-known dangerous open ports
+            local port_note=""
+            case "$port" in
+                21)   port_note="${FAILURE} [FTP — plaintext]${NC}" ;;
+                23)   port_note="${FAILURE} [Telnet — plaintext]${NC}" ;;
+                25)   port_note="${WARNING} [SMTP — verify relay config]${NC}" ;;
+                80)   port_note="${MUTED} [HTTP]${NC}" ;;
+                443)  port_note="${SUCCESS} [HTTPS]${NC}" ;;
+                22)   port_note="${WARNING} [SSH — ensure key-auth only]${NC}" ;;
+                3306) port_note="${FAILURE} [MySQL — should not be externally exposed]${NC}" ;;
+                5432) port_note="${FAILURE} [PostgreSQL — should not be externally exposed]${NC}" ;;
+                6379) port_note="${FAILURE} [Redis — unauthenticated by default]${NC}" ;;
+                27017) port_note="${FAILURE} [MongoDB — verify auth is enabled]${NC}" ;;
+                2375|2376) port_note="${FAILURE} [Docker daemon — critical if externally exposed]${NC}" ;;
+            esac
+ 
+            local proc_name
+            proc_name=$(echo "$proc" | grep -oP 'users:\(\("\K[^"]+' | head -1)
+            proc_name="${proc_name:---}"
+ 
+            printf "  ${MUTED}%-8s${NC} ${GOLD}%-8s${NC} ${VALUE}%-22.22s${NC} ${SUCCESS}%-8s${NC} ${MUTED}%s${NC}" \
+                "TCP" "$port" "$addr" "LISTEN" "$proc_name"
+            echo -e "$port_note"
+ 
+        done
+ 
+        # UDP listeners
+        ss -ulnp 2>/dev/null | tail -n +2 | head -10 | \
+        while IFS= read -r ss_line; do
+            local state local_addr proc
+            read -r state _ _ local_addr _ proc <<< "$ss_line"
+            [[ -z "$local_addr" ]] && continue
+            local port="${local_addr##*:}"
+            local proc_name
+            proc_name=$(echo "$proc" | grep -oP 'users:\(\("\K[^"]+' | head -1)
+            proc_name="${proc_name:---}"
+            printf "  ${MUTED}%-8s${NC} ${GOLD}%-8s${NC} ${VALUE}%-22.22s${NC} ${MUTED}%-8s${NC} %s\n" \
+                "UDP" "$port" "${local_addr%:*}" "UNBOUND" "$proc_name"
+        done
+ 
+    elif command -v netstat &>/dev/null; then
+        netstat -tlnp 2>/dev/null | tail -n +3 | head -20 | sed 's/^/  /'
+    else
+        echo -e "  ${MUTED}  ss and netstat not available — install iproute2${NC}"
+    fi
+ 
+    echo
+    echo -e "  ${MUTED}  Review: any port not intentionally exposed should be firewalled or service stopped${NC}"
+    echo
 }
 
 # IPTABLES
@@ -557,7 +955,7 @@ check_firewall_hardening() {
     printf "  ${BOLD}%-45s %-10s %-10s %s${NC}\n" \
         "Parameter" "Current" "Expected" "Status"
     printf "  ${DARK_GRAY}%-45s %-10s %-10s %s${NC}\n" \
-        "$(printf '─%.0s' {1..44})" "─────────" "─────────" "──────"
+        "$(printf '%.0s' {1..44})" "" "" ""
 
     local pass=0 fail=0
     for param in "${!kernel_checks[@]}"; do
