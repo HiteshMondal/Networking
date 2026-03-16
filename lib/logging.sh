@@ -259,3 +259,51 @@ log_audit() {
 
     _LOG_MIN_WEIGHT="$_saved_min"
 }
+
+# _rand_byte
+# Emit a single random byte value (0–255) as a zero-padded 2-char hex string.
+# $RANDOM is 0–32767; modulo 256 constrains it to one byte.
+_rand_byte() {
+    printf "%02x" $(( RANDOM % 256 ))
+}
+
+# _gen_mac [oui]
+# Generate a random locally-administered unicast MAC.
+# Byte 1 is always 0x02:  bit0=0 (unicast)  bit1=1 (locally administered).
+# Caller may pass a fixed OUI (3 colon-separated bytes) to simulate a
+# single-vendor flood; omit it for a fully random OUI.
+_gen_mac() {
+    local oui="${1:-}"
+    if [[ -n "$oui" ]]; then
+        printf "%s:%s:%s:%s\n" \
+            "$oui" "$(_rand_byte)" "$(_rand_byte)" "$(_rand_byte)"
+    else
+        printf "02:%s:%s:%s:%s:%s\n" \
+            "$(_rand_byte)" "$(_rand_byte)" \
+            "$(_rand_byte)" "$(_rand_byte)" "$(_rand_byte)"
+    fi
+}
+ 
+# _cam_bar
+# Render a simple ASCII progress bar representing CAM table fill level.
+# Args: <filled_slots> <total_slots> <bar_width>
+_cam_bar() {
+    local filled="$1"
+    local total="$2"
+    local width="${3:-40}"
+ 
+    local blocks=$(( filled * width / total ))
+    local empty=$(( width - blocks ))
+    local pct=$(( filled * 100 / total ))
+ 
+    local color="$SUCCESS"
+    (( pct >= 60 )) && color="$WARNING"
+    (( pct >= 85 )) && color="$FAILURE"
+ 
+    local bar_fill bar_empty
+    bar_fill=$(printf '█%.0s'  $(seq 1 $blocks) 2>/dev/null)
+    bar_empty=$(printf '░%.0s' $(seq 1 $empty)  2>/dev/null)
+ 
+    printf "  ${LABEL}CAM fill  ${NC}[${color}%-*s${DARK_GRAY}%s${NC}] ${color}%3d%%${NC}  ${MUTED}%d / %d slots${NC}\n" \
+        "$blocks" "$bar_fill" "$bar_empty" "$pct" "$filled" "$total"
+}

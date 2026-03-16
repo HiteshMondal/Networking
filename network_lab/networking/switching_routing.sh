@@ -14,7 +14,7 @@ check_switch_vs_router() {
     header "Switch vs Router"
 
     printf "\n  ${BOLD}%-35s %-35s${NC}\n" "SWITCH (Layer 2)" "ROUTER (Layer 3)"
-    printf "  ${DARK_GRAY}%-35s %-35s${NC}\n" "$(printf '─%.0s' {1..33})" "$(printf '─%.0s' {1..33})"
+    printf "  ${DARK_GRAY}%-35s %-35s${NC}\n" "$(printf '%.0s' {1..33})" "$(printf '%.0s' {1..33})"
     while IFS='|' read -r sw rt; do
         printf "  ${GREEN}%-35s${NC} ${CYAN}%-35s${NC}\n" "$sw" "$rt"
     done << 'TABLE'
@@ -72,84 +72,261 @@ TABLE
 # MAC ADDRESS & CAM TABLE
 check_mac_cam() {
     header "MAC Addresses & CAM Table"
-
+ 
     cat << 'INFO'
   MAC (Media Access Control) Address
-    48-bit hardware address assigned to every NIC
-    Format: XX:XX:XX:XX:XX:XX  (hexadecimal, colon-separated)
-    OUI (bytes 1-3): Manufacturer identifier (IEEE registered)
-    NIC ID (bytes 4-6): Device-specific, assigned by vendor
-    Bit 0 of byte 1: 0=Unicast, 1=Multicast
-    Bit 1 of byte 1: 0=Globally unique, 1=Locally administered
-
-  Special MACs:
-    FF:FF:FF:FF:FF:FF — Broadcast (all devices)
-    01:00:5E:xx:xx:xx — IPv4 Multicast range
-    33:33:xx:xx:xx:xx — IPv6 Multicast range
-    01:80:C2:00:00:00 — STP Bridge Protocol Data Units
-
-  CAM Table (Content Addressable Memory):
-    Switch maintains MAC-to-port mappings
-    Learns by inspecting source MACs of incoming frames
-    Entries timeout after inactivity (default ~300s)
-    CAM flooding attack: overflow table → switch acts as hub
+    ├ 48-bit hardware address assigned to every NIC
+    ├ Format: XX:XX:XX:XX:XX:XX  (hexadecimal, colon-separated)
+    ├ OUI  (bytes 1–3) : Manufacturer identifier (IEEE registered)
+    ├ NIC ID (bytes 4–6) : Device-specific, assigned by vendor
+    ├ Bit 0 of byte 1  : 0 = Unicast      | 1 = Multicast
+    └ Bit 1 of byte 1  : 0 = Globally unique (OUI enforced)
+                          1 = Locally administered (VM / spoof / random)
+ 
+  Special / Reserved MACs
+    ├ FF:FF:FF:FF:FF:FF     — Layer-2 Broadcast (all devices on segment)
+    ├ 01:00:5E:xx:xx:xx     — IPv4 Multicast  (RFC 1112)
+    ├ 33:33:xx:xx:xx:xx     — IPv6 Multicast  (RFC 2464)
+    ├ 01:80:C2:00:00:00     — STP BPDU  (802.1D)
+    ├ 01:80:C2:00:00:02     — LACP / slow protocols  (802.3ad)
+    └ 00:00:00:00:00:00     — Unset / placeholder
+ 
+  CAM Table (Content Addressable Memory)
+    ├ Maintained by the switch; maps  MAC → ingress port
+    ├ Populated by inspecting the Source MAC of every received frame
+    ├ Entries age out after inactivity (default ≈ 300 s on Cisco)
+    ├ Lookup is O(1) — hardware TCAM; no CPU involvement at line rate
+    └ CAM Flooding Attack
+         └ Attacker sends frames with thousands of spoofed source MACs
+            → table fills → switch falls back to flooding all ports
+            → attacker receives traffic intended for other hosts (passive sniff)
+            → mitigated with: port security, 802.1X, MAC limit per-port
 INFO
-
-    section "System MAC Addresses"
+ 
+    #  SECTION 1  System Interfaces 
+    section "System Network Interfaces & MAC Addresses"
     echo
-    printf "  ${BOLD}%-14s %-20s %-10s %-20s${NC}\n" "Interface" "MAC Address" "Type" "State"
-    printf "  ${DARK_GRAY}%-14s %-20s %-10s %-20s${NC}\n" \
-        "──────────────" "────────────────────" "──────────" "────────────────────"
-
-    ip link show 2>/dev/null | grep -E "^[0-9]+:" | awk '{print $2}' | tr -d ':' | while read -r iface; do
-        local mac state
-        mac=$(ip link show "$iface" 2>/dev/null | awk '/link\/ether/{print $2}')
-        state=$(ip link show "$iface" 2>/dev/null | grep -oP 'state \K\S+')
+ 
+    printf "  ${BOLD}${LABEL}%-16s %-19s %-12s %-10s %-18s${NC}\n" \
+        "Interface" "MAC Address" "Type" "Admin" "Link State"
+    printf "  ${DARK_GRAY}%-16s %-19s %-12s %-10s %-18s${NC}\n" \
+        "-" "-" "-" "-" "-"
+ 
+    # ip -o link show: one line per interface — immune to multi-line output
+    while IFS= read -r line; do
+        local iface mac flags operstate itype admin_state
+ 
+        iface=$(echo "$line" | awk '{print $2}' | tr -d ':')
+        mac=$(echo "$line" | grep -oP 'link/ether \K[0-9a-f:]+')
+        flags=$(echo "$line" | grep -oP '<\K[^>]+')
+        operstate=$(echo "$line" | grep -oP 'state \K\S+')
+ 
+        # Skip interfaces with no Ethernet MAC (loopback, sit, gre, etc.)
         [[ -z "$mac" ]] && continue
-
-        local first_byte
-        first_byte=$(echo "$mac" | cut -d: -f1)
-        local type="Unicast"
-        (( 16#$first_byte & 1 )) && type="Multicast"
-
-        local state_color="$MUTED"
-        [[ "$state" == "UP" ]] && state_color="$SUCCESS"
-
-        printf "  ${CYAN}%-14s${NC} ${WHITE}%-20s${NC} ${LABEL}%-10s${NC} ${state_color}%-20s${NC}\n" \
-            "$iface" "$mac" "$type" "${state:-UNKNOWN}"
-    done
-
-    section "ARP Table (Simulated CAM Table for This Host)"
+ 
+        # Determine interface type from name patterns + flags
+        itype="Physical"
+        [[ "$iface" =~ ^(lo)$              ]] && itype="Loopback"
+        [[ "$iface" =~ ^(docker|br-|virbr) ]] && itype="Bridge"
+        [[ "$iface" =~ ^veth               ]] && itype="vEth"
+        [[ "$iface" =~ ^(tun|tap)          ]] && itype="Tunnel"
+        [[ "$iface" =~ \.[0-9]+$           ]] && itype="VLAN"
+        [[ "$iface" =~ ^bond               ]] && itype="Bond"
+        [[ "$iface" =~ ^dummy              ]] && itype="Dummy"
+        [[ "$flags" =~ SLAVE               ]] && itype="Slave"
+ 
+        # Admin state from flags
+        admin_state="${FAILURE}DOWN${NC}"
+        [[ "$flags" =~ UP ]] && admin_state="${SUCCESS}UP${NC}"
+ 
+        # Operstate colour
+        local op_color="$MUTED"
+        case "$operstate" in
+            UP)             op_color="$SUCCESS" ;;
+            DOWN)           op_color="$FAILURE" ;;
+            UNKNOWN|LOWERLAYERDOWN) op_color="$WARNING" ;;
+        esac
+ 
+        printf "  ${CYAN}%-16s${NC} ${WHITE}%-19s${NC} ${LABEL}%-12s${NC} %-10b ${op_color}%-18s${NC}\n" \
+            "$iface" "$mac" "$itype" "$admin_state" "${operstate:-UNKNOWN}"
+ 
+    done < <(ip -o link show 2>/dev/null)
+ 
+    #  SECTION 2  ARP / IPv4 Neighbour Table 
+    section "ARP Table — IPv4 Neighbours  (simulated CAM for this host)"
     echo
-    printf "  ${BOLD}%-18s %-20s %-12s %-12s${NC}\n" "IP" "MAC" "Interface" "State"
-    printf "  ${DARK_GRAY}%-18s %-20s %-12s %-12s${NC}\n" \
-        "──────────────────" "────────────────────" "────────────" "────────────"
-
-    ip neigh show 2>/dev/null | while read -r ip _ iface _ mac state; do
-        [[ -z "$mac" || "$mac" == "lladdr" ]] && continue
-        local sc="$MUTED"
-        [[ "$state" == "REACHABLE" ]] && sc="$SUCCESS"
-        [[ "$state" == "FAILED"    ]] && sc="$FAILURE"
-        printf "  ${CYAN}%-18s${NC} ${WHITE}%-20s${NC} ${LABEL}%-12s${NC} ${sc}%-12s${NC}\n" \
-            "$ip" "$mac" "$iface" "$state"
-    done
-
-    section "MAC Address Lookup"
-    read -rp "$(echo -e "  ${PROMPT}Enter a MAC address to analyse [e.g. 00:1A:2B:3C:4D:5E]:${NC} ")" user_mac
-    if [[ "$user_mac" =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]]; then
-        local first
-        first=$(echo "$user_mac" | cut -d: -f1)
-        local b1=$(( 16#$first ))
-        local oui
-        oui=$(echo "$user_mac" | tr '[:lower:]' '[:upper:]' | cut -d: -f1-3 | tr -d ':')
-        echo
-        kv "MAC Address"   "$user_mac"
-        kv "OUI (vendor)"  "$oui (look up at https://macvendors.co)"
-        [[ $(( b1 & 1 )) -eq 0 ]] && kv "Type" "Unicast" || kv "Type" "Multicast"
-        [[ $(( b1 & 2 )) -eq 0 ]] && kv "Scope" "Globally unique (IEEE assigned)" || \
-                                      kv "Scope" "Locally administered"
+ 
+    local arp_count=0 reachable_count=0 stale_count=0 failed_count=0
+ 
+    printf "  ${BOLD}${LABEL}%-18s %-19s %-14s %-12s${NC}\n" \
+        "IPv4 Address" "MAC Address" "Interface" "NUD State"
+    printf "  ${DARK_GRAY}%-18s %-19s %-14s %-12s${NC}\n" \
+        "-" "-" "-" "-"
+ 
+    # Parse ip neigh show with associative extraction — handles missing fields
+    while IFS= read -r entry; do
+        local n_ip n_iface n_mac n_state n_sc
+ 
+        n_ip=$(echo    "$entry" | awk '{print $1}')
+        n_iface=$(echo "$entry" | grep -oP 'dev \K\S+')
+        n_mac=$(echo   "$entry" | grep -oP 'lladdr \K[0-9a-f:]+')
+        n_state=$(echo "$entry" | awk '{print $NF}')
+ 
+        # Skip IPv6 entries here (handled separately below)
+        [[ "$n_ip" =~ : ]] && continue
+        # Skip entries with no MAC (FAILED with no lladdr)
+        [[ -z "$n_mac" ]] && n_mac="(none)"
+ 
+        n_sc="$MUTED"
+        case "$n_state" in
+            REACHABLE) n_sc="$SUCCESS"; (( reachable_count++ )) ;;
+            STALE)     n_sc="$WARNING"; (( stale_count++ ))     ;;
+            FAILED)    n_sc="$FAILURE"; (( failed_count++ ))    ;;
+            DELAY|PROBE|INCOMPLETE) n_sc="$AMBER"               ;;
+        esac
+        (( arp_count++ ))
+ 
+        printf "  ${CYAN}%-18s${NC} ${WHITE}%-19s${NC} ${LABEL}%-14s${NC} ${n_sc}%-12s${NC}\n" \
+            "$n_ip" "$n_mac" "$n_iface" "$n_state"
+ 
+    done < <(ip neigh show 2>/dev/null)
+ 
+    if [[ $arp_count -eq 0 ]]; then
+        echo -e "  ${MUTED}No ARP entries found.${NC}"
     else
-        log_warning "Invalid MAC address format"
+        echo
+        printf "  ${MUTED}Summary — Total: ${WHITE}%d${NC}  " "$arp_count"
+        printf "${SUCCESS}Reachable: %d${NC}  " "$reachable_count"
+        printf "${WARNING}Stale: %d${NC}  "     "$stale_count"
+        printf "${FAILURE}Failed: %d${NC}\n"    "$failed_count"
+    fi
+ 
+    #  SECTION 3  IPv6 Neighbour Table 
+    section "NDP Table — IPv6 Neighbours"
+    echo
+ 
+    local ndp_count=0
+    printf "  ${BOLD}${LABEL}%-40s %-19s %-14s %-12s${NC}\n" \
+        "IPv6 Address" "MAC Address" "Interface" "NUD State"
+    printf "  ${DARK_GRAY}%-40s %-19s %-14s %-12s${NC}\n" \
+        "-" "-" "-" "-"
+ 
+    while IFS= read -r entry; do
+        local n_ip n_iface n_mac n_state n_sc
+ 
+        n_ip=$(echo    "$entry" | awk '{print $1}')
+        n_iface=$(echo "$entry" | grep -oP 'dev \K\S+')
+        n_mac=$(echo   "$entry" | grep -oP 'lladdr \K[0-9a-f:]+')
+        n_state=$(echo "$entry" | awk '{print $NF}')
+ 
+        # IPv6 only
+        [[ ! "$n_ip" =~ : ]] && continue
+        [[ -z "$n_mac" ]] && n_mac="(none)"
+ 
+        n_sc="$MUTED"
+        case "$n_state" in
+            REACHABLE) n_sc="$SUCCESS" ;;
+            STALE)     n_sc="$WARNING" ;;
+            FAILED)    n_sc="$FAILURE" ;;
+            DELAY|PROBE|INCOMPLETE) n_sc="$AMBER" ;;
+        esac
+        (( ndp_count++ ))
+ 
+        printf "  ${CYAN}%-40s${NC} ${WHITE}%-19s${NC} ${LABEL}%-14s${NC} ${n_sc}%-12s${NC}\n" \
+            "$n_ip" "$n_mac" "$n_iface" "$n_state"
+ 
+    done < <(ip neigh show 2>/dev/null)
+ 
+    if [[ $ndp_count -eq 0 ]]; then
+        echo -e "  ${MUTED}No IPv6 neighbour entries found.${NC}"
+    fi
+ 
+    #  SECTION 4  MAC Address Analyser 
+    section "MAC Address Analyser"
+    echo
+    read -rp "$(echo -e "  ${PROMPT}Enter MAC address to analyse [e.g. 00:1A:2B:3C:4D:5E]:${NC} ")" user_mac
+    echo
+ 
+    if [[ ! "$user_mac" =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]]; then
+        log_warning "Invalid MAC format. Expected XX:XX:XX:XX:XX:XX"
+        return 0
+    fi
+ 
+    # Normalise to uppercase
+    local mac_upper
+    mac_upper=$(echo "$user_mac" | tr '[:lower:]' '[:upper:]')
+ 
+    local b1_hex b1_dec
+    b1_hex=$(echo "$mac_upper" | cut -d: -f1)
+    b1_dec=$(( 16#$b1_hex ))
+ 
+    local oui_raw oui_fmt
+    oui_raw=$(echo "$mac_upper" | cut -d: -f1-3 | tr -d ':')
+    oui_fmt=$(echo "$mac_upper" | cut -d: -f1-3)
+ 
+    # Bit flags
+    local is_multicast is_local
+    is_multicast=$(( b1_dec & 1 ))    # bit 0
+    is_local=$(( b1_dec & 2 ))        # bit 1
+ 
+    # Binary representation of first byte
+    local bin=""
+    for (( bit=7; bit>=0; bit-- )); do
+        bin+=$(( (b1_dec >> bit) & 1 ))
+    done
+ 
+    kv "MAC Address (input)"    "$user_mac"
+    kv "Normalised"             "$mac_upper"
+    kv "OUI  (bytes 1–3)"       "$oui_fmt"
+    kv "NIC ID  (bytes 4–6)"    "$(echo "$mac_upper" | cut -d: -f4-6)"
+    echo
+    kv "First byte  (hex)"      "0x${b1_hex}"
+    kv "First byte  (binary)"   "${bin}  [bit7..bit0]"
+    kv "Bit 0  (I/G)"           "$( [[ $is_multicast -eq 0 ]] && echo "0 → Unicast" || echo "1 → Multicast" )"
+    kv "Bit 1  (U/L)"           "$( [[ $is_local -eq 0 ]] && echo "0 → Globally unique (OUI-enforced)" || echo "1 → Locally administered (VM / random / spoofed)" )"
+    echo
+ 
+    # Special MAC detection
+    local mac_lower
+    mac_lower=$(echo "$mac_upper" | tr '[:upper:]' '[:lower:]')
+    if   [[ "$mac_lower" == "ff:ff:ff:ff:ff:ff" ]]; then
+        kv "Special"  "Layer-2 Broadcast"
+    elif [[ "$mac_lower" =~ ^01:00:5e ]]; then
+        kv "Special"  "IPv4 Multicast (RFC 1112)"
+    elif [[ "$mac_lower" =~ ^33:33 ]]; then
+        kv "Special"  "IPv6 Multicast (RFC 2464)"
+    elif [[ "$mac_lower" == "01:80:c2:00:00:00" ]]; then
+        kv "Special"  "STP BPDU (IEEE 802.1D)"
+    elif [[ "$mac_lower" == "00:00:00:00:00:00" ]]; then
+        kv "Special"  "Unset / placeholder"
+    fi
+ 
+    # OUI vendor lookup — try curl, fall back gracefully
+    echo
+    echo -e "  ${AMBER}OUI Vendor Lookup${NC}"
+    if command -v curl &>/dev/null; then
+        local vendor response
+        echo -e "  ${MUTED}Querying macvendors.com...${NC}"
+        response=$(curl -sf --max-time 4 \
+            "https://api.macvendors.com/${oui_fmt}" 2>/dev/null)
+        if [[ -n "$response" && "$response" != *"errors"* ]]; then
+            kv "Vendor" "$response"
+        else
+            kv "Vendor" "${MUTED}Not found or lookup failed${NC}"
+            kv "Manual lookup" "https://macvendors.co  |  https://www.wireshark.org/tools/oui-lookup"
+        fi
+    else
+        kv "Vendor lookup" "${MUTED}curl not available — cannot query online OUI database${NC}"
+        kv "Manual lookup" "https://macvendors.co  |  https://www.wireshark.org/tools/oui-lookup"
+    fi
+ 
+    # Locally administered note
+    if [[ $is_local -ne 0 ]]; then
+        echo
+        echo -e "  ${WARNING}[~] Locally administered bit is SET.${NC}"
+        echo -e "  ${MUTED}    This MAC was not assigned by the manufacturer."
+        echo -e "      Common causes: VMware/VirtualBox vNIC, Docker bridge,"
+        echo -e "      macchanger spoof, OS privacy randomisation (macOS/iOS/Android/Win11).${NC}"
     fi
 }
 
@@ -457,17 +634,210 @@ INFO
     fi
 }
 
+# CAM TABLE FLOODING
 cam_flood_simulation() {
-    header "CAM Table Flooding Simulation (Conceptual)"
-    echo -e "${INFO}Simulating MAC flooding...${NC}"
-    for i in {1..20}; do
-        local mac
-        mac=$(printf "02:00:%02x:%02x:%02x:%02x\n" $RANDOM $RANDOM $RANDOM $RANDOM)
-        echo "Fake MAC injected: $mac"
-        sleep 0.1
-    done
+    header "CAM Table Flooding — Educational Simulation"
+ 
+    # ── Theory block ──────────────────────────────────────────────────────────
+    cat << 'THEORY'
+  How a Switch Uses Its CAM Table
+    ├─ Every frame received is inspected for its Source MAC
+    ├─ The switch records:  Source MAC → ingress port → VLAN  (one entry)
+    ├─ On forwarding, the Destination MAC is looked up in the table
+    ├─ HIT  → frame is forwarded only to the correct egress port  (unicast)
+    └─ MISS → frame is flooded to all ports in the VLAN  (unknown unicast flood)
+ 
+  CAM Table Flooding Attack  (MAC Flood / CAM Overflow)
+    ├─ Attacker rapidly injects frames with unique, spoofed Source MACs
+    ├─ Each frame creates a new CAM entry until the table is exhausted
+    ├─ Once full, the switch cannot learn new MACs
+    ├─ All subsequent unknown-destination frames are flooded to every port
+    └─ Attacker passively captures traffic intended for other hosts
+ 
+  Real-World Tool:  macof  (part of dsniff suite)
+    ├─ Generates ~155,000 spoofed-MAC frames per minute
+    ├─ Most commodity switches have 4 K – 128 K CAM entries
+    └─ A 16 K-entry table can be exhausted in under 1 second
+ 
+  Defences
+    ├─ Port Security       — limit learned MACs per port; violation = shutdown
+    ├─ 802.1X              — authenticate before the port joins any VLAN
+    ├─ Dynamic ARP Inspection (DAI) — drops ARP replies not in DHCP binding
+    ├─ DHCP Snooping       — binding table used by DAI / IP Source Guard
+    └─ Private VLANs       — isolate ports; flood blast radius is eliminated
+THEORY
+ 
     echo
-    echo -e "${WARNING}Real attack uses tools like macof to overflow switch CAM table${NC}"
+    log_info "This simulation is entirely local and passive."
+    log_info "No frames are transmitted. No network interfaces are touched."
+    echo
+ 
+    # ── Parameters ────────────────────────────────────────────────────────────
+    local CAM_SIZE=64          # simulated switch CAM table capacity
+    local BATCH=8              # MACs generated per display tick
+    local DELAY="0.12"         # seconds between ticks
+    local FLOOD_ROUNDS=10      # ticks in flood phase
+    local LEGITIMATE_HOSTS=6   # pre-existing legitimate entries
+ 
+    # ── Phase 0 ─ Initial legitimate state ───────────────────────────────────
+    section "Phase 0 — Baseline: Legitimate CAM State"
+    echo
+    log_info "Switch powers on. Legitimate hosts communicate; table builds normally."
+    echo
+ 
+    printf "  ${BOLD}${LABEL}%-5s %-19s %-8s %-10s${NC}\n" \
+        "Port" "MAC Address" "VLAN" "Age (s)"
+    printf "  ${DARK_GRAY}%-5s %-19s %-8s %-10s${NC}\n" \
+        "─────" "───────────────────" "────────" "──────────"
+ 
+    local -a legit_macs=()
+    local -a legit_ports=(Gi0/1 Gi0/2 Gi0/3 Gi0/4 Gi0/5 Gi0/6)
+    local vlan=10
+ 
+    for (( h=0; h<LEGITIMATE_HOSTS; h++ )); do
+        local lmac
+        lmac=$(_gen_mac)
+        legit_macs+=("$lmac")
+        printf "  ${CYAN}%-5s${NC} ${WHITE}%-19s${NC} ${LABEL}%-8s${NC} ${SUCCESS}%-10s${NC}\n" \
+            "${legit_ports[$h]}" "$lmac" "$vlan" "$(( RANDOM % 280 + 20 ))"
+    done
+ 
+    echo
+    _cam_bar "$LEGITIMATE_HOSTS" "$CAM_SIZE"
+    echo
+    log_success "CAM table healthy.  $LEGITIMATE_HOSTS / $CAM_SIZE entries used."
+ 
+    pause
+ 
+    # ── Phase 1 ─ Attack begins ───────────────────────────────────────────────
+    section "Phase 1 — Attack Begins: macof-Style MAC Flood"
+    echo
+    log_warning "Attacker connects to port Gi0/24 and launches MAC flood."
+    log_info    "Spoofed frames arrive with unique Source MACs at line rate."
+    echo
+ 
+    printf "  ${BOLD}${LABEL}%-5s %-19s %-8s %-14s${NC}\n" \
+        "Port" "Injected MAC" "VLAN" "Entry Type"
+    printf "  ${DARK_GRAY}%-5s %-19s %-8s %-14s${NC}\n" \
+        "─────" "───────────────────" "────────" "──────────────"
+ 
+    local cam_used="$LEGITIMATE_HOSTS"
+    local injected=0
+    local attacker_port="Gi0/24"
+ 
+    for (( round=0; round<FLOOD_ROUNDS; round++ )); do
+        for (( b=0; b<BATCH; b++ )); do
+            (( cam_used >= CAM_SIZE )) && break 2
+ 
+            local fmac
+            fmac=$(_gen_mac)
+            (( cam_used++ ))
+            (( injected++ ))
+ 
+            # Colour shifts as table fills
+            local entry_color="$SUCCESS"
+            local fill_pct=$(( cam_used * 100 / CAM_SIZE ))
+            (( fill_pct >= 60 )) && entry_color="$WARNING"
+            (( fill_pct >= 85 )) && entry_color="$FAILURE"
+ 
+            printf "  ${CORAL}%-5s${NC} ${entry_color}%-19s${NC} ${LABEL}%-8s${NC} ${AMBER}%-14s${NC}\n" \
+                "$attacker_port" "$fmac" "$vlan" "SPOOFED"
+        done
+ 
+        sleep "$DELAY"
+        echo
+        _cam_bar "$cam_used" "$CAM_SIZE"
+ 
+        # Milestone messages
+        local pct=$(( cam_used * 100 / CAM_SIZE ))
+        if   (( pct >= 50 && pct < 60 && round == 4 )); then
+            echo -e "  ${WARNING}[~] 50% — Switch begins dropping new legitimate MACs.${NC}"
+        elif (( pct >= 75 && pct < 85 )); then
+            echo -e "  ${WARNING}[~] 75% — Port security violations would trigger here on hardened switches.${NC}"
+        elif (( pct >= 90 )); then
+            echo -e "  ${FAILURE}[!] 90%+ — Table nearly full. Flooding behaviour imminent.${NC}"
+        fi
+        echo
+    done
+ 
+    # ── Phase 2 ─ Table exhausted ─────────────────────────────────────────────
+    section "Phase 2 — CAM Table Exhausted: Flooding Mode Active"
+    echo
+ 
+    _cam_bar "$CAM_SIZE" "$CAM_SIZE"
+    echo
+ 
+    log_error "CAM table is FULL  ($CAM_SIZE / $CAM_SIZE entries)."
+    log_warning "Switch can no longer learn new Source MACs."
+    echo
+ 
+    cat << 'IMPACT'
+  What happens now:
+    ├─ Every frame with an unknown Destination MAC is flooded to ALL ports
+    ├─ Legitimate host traffic (e.g. Host-A → Host-B) floods to attacker port
+    ├─ Attacker runs Wireshark / tcpdump and passively captures all L2 traffic
+    ├─ Credentials, session tokens, and plaintext data are exposed
+    └─ Switch CPU may spike — flooding at line rate is expensive to process
+ 
+  Traffic visible to attacker:
+    ├─ Unencrypted HTTP sessions, FTP credentials, Telnet passwords
+    ├─ SMB share traffic, NFS mounts, LDAP binds
+    └─ Any protocol without transport-layer encryption (TLS/SSH)
+IMPACT
+ 
+    pause
+ 
+    # ── Phase 3 ─ Recovery ────────────────────────────────────────────────────
+    section "Phase 3 — Recovery: CAM Table Ages Out"
+    echo
+    log_info "Attacker disconnects.  CAM entries age out (default timeout ≈ 300 s)."
+    log_info "Simulating accelerated ageing for demonstration."
+    echo
+ 
+    local recovery_steps=6
+    local recovery_interval=$(( CAM_SIZE / recovery_steps ))
+ 
+    for (( step=recovery_steps; step>=0; step-- )); do
+        local remaining=$(( step * recovery_interval ))
+        (( remaining > CAM_SIZE )) && remaining=$CAM_SIZE
+        _cam_bar "$remaining" "$CAM_SIZE"
+        sleep "$DELAY"
+    done
+ 
+    echo
+    _cam_bar "$LEGITIMATE_HOSTS" "$CAM_SIZE"
+    echo
+    log_success "CAM table recovered.  Only $LEGITIMATE_HOSTS legitimate entries remain."
+ 
+    # ── Summary ───────────────────────────────────────────────────────────────
+    section "Simulation Summary"
+    echo
+    kv "Simulated CAM capacity"   "$CAM_SIZE entries"
+    kv "Legitimate hosts"         "$LEGITIMATE_HOSTS"
+    kv "Spoofed MACs injected"    "$injected"
+    kv "Attack port"              "$attacker_port"
+    kv "Flood phase duration"     "$(echo "$DELAY * $FLOOD_ROUNDS" | bc -l | xargs printf '%.1f') s (simulated)"
+    kv "Real macof rate"          "~155,000 frames / min"
+    kv "Time to flood 16K table"  "< 1 second (real hardware)"
+    echo
+ 
+    cat << 'MITIGATION'
+  Recommended Mitigations (Cisco IOS syntax shown as reference)
+    ├─ Port Security
+    │     switchport port-security maximum 5
+    │     switchport port-security violation restrict
+    │     switchport port-security
+    ├─ 802.1X  (strongest — requires RADIUS)
+    │     dot1x port-control auto
+    ├─ DHCP Snooping  (prerequisite for DAI)
+    │     ip dhcp snooping vlan 10
+    │     ip dhcp snooping
+    └─ Dynamic ARP Inspection
+          ip arp inspection vlan 10
+MITIGATION
+ 
+    echo
+    log_info "No packets were sent. This was a fully local, educational simulation."
 }
 
 main() {
