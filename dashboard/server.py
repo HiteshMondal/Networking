@@ -2,16 +2,7 @@
 """
 CyberDeck Dashboard Server v4.0
 Networking & Cybersecurity Automation Toolkit
-
-Changes from v3.1:
-  - Reads structured .jsonl logs (produced by lib/logging.sh) for rich metadata
-  - Falls back to legacy .log parsing for backward compatibility
-  - Alert thresholds boot from environment / settings.conf exports
-  - /api/log-stream endpoint returns parsed JSON records (not raw text)
-  - /api/findings endpoint aggregates log_finding() records
-  - /api/sessions endpoint lists unique session IDs across runs
 """
-
 import http.server
 import json
 import os
@@ -119,7 +110,6 @@ def _stem_from_name(filename: str) -> str:
     m = re.match(r"^(.+?)_(\d{8}_\d{6})$", name)
     return m.group(1) if m else name
 
-
 def _category(name: str) -> str:
     if name in _CATEGORY_MAP:
         return _CATEGORY_MAP[name]
@@ -138,7 +128,6 @@ def _category(name: str) -> str:
     if any(k in n for k in ("system", "info", "log")):
         return "system"
     return "other"
-
 
 #  JSON log parsing 
 
@@ -159,7 +148,6 @@ def _parse_jsonl(path: Path) -> list[dict]:
     except OSError:
         pass
     return records
-
 
 def _summarise_jsonl(path: Path) -> tuple[str, str, str | None]:
     """Return (status, duration, session_id) derived from a .jsonl file."""
@@ -203,7 +191,6 @@ def _summarise_jsonl(path: Path) -> tuple[str, str, str | None]:
 
     return status, duration, session_id
 
-
 def _parse_legacy_log(path: Path) -> tuple[str, str]:
     """Parse a legacy .log file (plain text). Returns (status, duration)."""
     try:
@@ -241,16 +228,12 @@ def _parse_legacy_log(path: Path) -> tuple[str, str]:
 
     return status, dur
 
-
 #  Request handler 
-
 class DashboardHandler(http.server.SimpleHTTPRequestHandler):
-
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(DASHBOARD_DIR), **kw)
 
     #  Routing 
-
     def do_GET(self):
         p  = urlparse(self.path)
         qs = parse_qs(p.query)
@@ -294,7 +277,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     #  Security headers 
-
     def _sec(self):
         for k, v in [
             ("X-Content-Type-Options",  "nosniff"),
@@ -317,7 +299,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header(k, v)
 
     #  /api/dashboard-data 
-
     def _serve_dashboard_data(self):
         try:
             h = self._history()
@@ -334,7 +315,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     #  /api/log-stream  (NEW) 
     # Returns parsed JSON records from a .jsonl file.
     # Query params: dir=logs&name=<filename>&limit=200
-
     def _serve_log_stream(self, qs: dict):
         rd   = qs.get("dir",   ["logs"])[0]
         rn   = qs.get("name",  [""])[0]
@@ -370,7 +350,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     #  /api/findings  (NEW) 
     # Aggregates log_finding() records from all .jsonl files.
-
     def _serve_findings(self):
         findings: list[dict] = []
         if not LOGS_DIR.is_dir():
@@ -401,7 +380,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     #  /api/sessions  (NEW) 
     # Returns a list of unique session IDs with their run summary.
-
     def _serve_sessions(self):
         sessions: dict[str, dict] = {}
         if not LOGS_DIR.is_dir():
@@ -433,7 +411,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._json(200, {"sessions": result, "total": len(result)})
 
     #  /api/file 
-
     def _serve_file(self, qs: dict):
         rd = qs.get("dir",  [""])[0]
         rn = qs.get("name", [""])[0]
@@ -475,7 +452,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(content)
 
     #  /api/search 
-
     def _serve_search(self, qs: dict):
         q     = qs.get("q", [""])[0].strip()
         limit = min(int(qs.get("limit", ["50"])[0] or 50), 200)
@@ -514,7 +490,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._json(200, {"results": results, "query": q, "total": len(results)})
 
     #  /api/tail 
-
     def _serve_tail(self, qs: dict):
         rd = qs.get("dir",   ["logs"])[0]
         rn = qs.get("name",  [""])[0]
@@ -546,7 +521,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._err(500, str(exc))
 
     #  /api/metrics 
-
     def _serve_metrics(self):
         h      = self._history()
         by_day = defaultdict(lambda: {"success": 0, "error": 0, "warning": 0, "total": 0})
@@ -583,14 +557,12 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     #  /api/categories 
-
     def _serve_categories(self):
         self._json(200, {
             "categories": sorted({h.get("category", "other") for h in self._history()})
         })
 
     #  /api/system-stats 
-
     def _serve_system_stats(self):
         if not HAS_PSUTIL:
             return self._json(200, {
@@ -661,7 +633,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._err(500, str(exc))
 
     #  /api/alert-settings POST 
-
     def _handle_alert_settings(self, payload: dict):
         allowed = {"cpu_warn", "cpu_crit", "mem_warn", "mem_crit",
                    "disk_warn", "disk_crit", "email_to", "email_notify"}
@@ -677,7 +648,6 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._json(200, {"ok": True, "settings": dict(_alert_cfg)})
 
     #  /api/notify-email POST 
-
     def _handle_notify_email(self, payload: dict):
         to = payload.get("to", "").strip()
         if not to:
@@ -860,12 +830,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *a):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [{self.client_address[0]}] {fmt % a}")
 
-
 #  Server 
-
 class ReuseAddrServer(socketserver.TCPServer):
     allow_reuse_address = True
-
 
 def main():
     LOGS_DIR.mkdir(exist_ok=True)
@@ -897,7 +864,6 @@ def main():
     signal.signal(signal.SIGTERM, _stop)
     print(f"\n  ✓  http://localhost:{PORT}\n{banner}\n")
     server.serve_forever()
-
 
 if __name__ == "__main__":
     main()
