@@ -1,0 +1,160 @@
+# tools/configs/semgrep_rules.yaml
+# Custom Semgrep rules for the Networking & Cybersecurity Toolkit
+# Run via:  tools/static_analysis/semgrep_scan.sh
+# Docs:     https://semgrep.dev/docs/writing-rules/rule-syntax
+
+rules:
+
+  #  Shell / Bash 
+
+  - id: bash-eval-injection
+    languages: [bash]
+    severity: ERROR
+    message: >
+      'eval' with an external or user-controlled variable is a command-injection
+      risk. Avoid eval, or validate/sanitise input first.
+    pattern: eval $...ARGS
+    metadata:
+      category: security
+      cwe: "CWE-78"
+
+  - id: bash-curl-insecure
+    languages: [bash]
+    severity: WARNING
+    message: >
+      curl -k / --insecure disables TLS certificate verification and exposes
+      connections to MITM attacks. Remove the flag or pin the certificate.
+    patterns:
+      - pattern-either:
+          - pattern: curl -k $...
+          - pattern: curl --insecure $...
+    metadata:
+      category: security
+      cwe: "CWE-295"
+
+  - id: bash-world-writable-chmod
+    languages: [bash]
+    severity: WARNING
+    message: >
+      chmod 777 grants write permission to all users. Prefer restrictive
+      permissions such as 750 or 640.
+    pattern: chmod 777 $FILE
+    metadata:
+      category: security
+      cwe: "CWE-732"
+
+  - id: bash-hardcoded-password
+    languages: [bash]
+    severity: ERROR
+    message: >
+      Hard-coded password detected. Store credentials in environment variables
+      or a secrets manager instead.
+    patterns:
+      - pattern-either:
+          - pattern: PASSWORD="$VALUE"
+          - pattern: PASS="$VALUE"
+          - pattern: SECRET="$VALUE"
+      - pattern-not: PASSWORD=""
+      - pattern-not: PASS=""
+      - pattern-not: SECRET=""
+    metadata:
+      category: security
+      cwe: "CWE-798"
+
+  #  Python 
+
+  - id: python-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >
+      subprocess called with shell=True and a variable argument is vulnerable to
+      shell injection. Use a list of arguments instead.
+    patterns:
+      - pattern: subprocess.$FUNC($CMD, ..., shell=True, ...)
+      - pattern-not: subprocess.$FUNC("...", ..., shell=True, ...)
+    metadata:
+      category: security
+      cwe: "CWE-78"
+
+  - id: python-hardcoded-secret
+    languages: [python]
+    severity: ERROR
+    message: >
+      Hard-coded secret or API key. Use environment variables or a vault.
+    patterns:
+      - pattern-either:
+          - pattern: password = "..."
+          - pattern: api_key = "..."
+          - pattern: secret = "..."
+          - pattern: token = "..."
+    metadata:
+      category: security
+      cwe: "CWE-798"
+
+  - id: python-insecure-pickle
+    languages: [python]
+    severity: ERROR
+    message: >
+      pickle.loads() on untrusted data allows arbitrary code execution.
+      Use a safe serialisation format such as JSON.
+    pattern: pickle.loads($DATA)
+    metadata:
+      category: security
+      cwe: "CWE-502"
+
+  - id: python-md5-weak-hash
+    languages: [python]
+    severity: WARNING
+    message: >
+      MD5 is cryptographically broken. Use SHA-256 or stronger for
+      security-sensitive hashing.
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.new("md5", ...)
+    metadata:
+      category: security
+      cwe: "CWE-327"
+
+  #  JavaScript / Node 
+
+  - id: js-eval-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      eval() with dynamic input is a code-injection risk. Avoid eval entirely.
+    pattern: eval($X)
+    metadata:
+      category: security
+      cwe: "CWE-95"
+
+  - id: js-hardcoded-secret
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      Hard-coded secret or API key found. Use environment variables.
+    patterns:
+      - pattern-either:
+          - pattern: const password = "..."
+          - pattern: const apiKey = "..."
+          - pattern: const secret = "..."
+          - pattern: const token = "..."
+    metadata:
+      category: security
+      cwe: "CWE-798"
+
+  #  Generic / Multi-language 
+
+  - id: generic-todo-security
+    languages: [generic]
+    severity: INFO
+    message: >
+      Security-related TODO comment found. Ensure it is tracked and resolved.
+    patterns:
+      - pattern-either:
+          - pattern: "# TODO: security"
+          - pattern: "// TODO: security"
+          - pattern: "# FIXME: security"
+          - pattern: "// FIXME: security"
+    metadata:
+      category: hygiene
