@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/dfir/iris_ir.sh
-# IRIS (dfir-iris) — incident response & case management via REST API
+# IRIS — installation check & usage instructions
 
 set -Eeuo pipefail
 
@@ -11,74 +11,82 @@ source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/config/settings.conf"
 
-OUTPUT_DIR="$PROJECT_ROOT/output/iris"
-LOG_FILE="$PROJECT_ROOT/logs/iris.log"
-mkdir -p "$OUTPUT_DIR"
-touch "$LOG_FILE"
-
-_log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
-
 IRIS_URL="${IRIS_URL:-https://localhost}"
 IRIS_TOKEN="${IRIS_TOKEN:-}"
 IRIS_VERIFY_SSL="${IRIS_VERIFY_SSL:-true}"
 
-_ssl_flag() { [[ "$IRIS_VERIFY_SSL" == "false" ]] && echo "-k" || echo ""; }
+_check_iris() {
+    local curl_ok=false token_set=false
 
-_iris() {
-    local method="$1" endpoint="$2" data="${3:-}"
-    local curl_args=(-sf -X "$method"
-        -H "Authorization: Bearer $IRIS_TOKEN"
-        -H "Content-Type: application/json"
-    )
-    [[ "$IRIS_VERIFY_SSL" == "false" ]] && curl_args+=(-k)
-    [[ -n "$data" ]] && curl_args+=(-d "$data")
-    curl "${curl_args[@]}" "${IRIS_URL}${endpoint}" 2>>"$LOG_FILE"
-}
+    command -v curl &>/dev/null && curl_ok=true
+    [[ -n "$IRIS_TOKEN" ]] && token_set=true
 
-_pretty() { command -v jq &>/dev/null && jq '.' || cat; }
+    echo -e "  ${LABEL}Configuration:${NC}"
+    echo
+    kv "  IRIS URL"    "$IRIS_URL"
+    kv "  Token set"   "$( $token_set && echo "${SUCCESS}yes${NC}" || echo "${FAILURE}no${NC}" )"
+    kv "  SSL verify"  "$IRIS_VERIFY_SSL"
+    echo
 
-_check_auth() {
-    if [[ -z "$IRIS_TOKEN" ]]; then
-        read -rsp "$(echo -e "  ${PROMPT}[?] IRIS API token: ${NC}")" IRIS_TOKEN
-        echo
+    if ! $curl_ok; then
+        log_error "curl is not installed — required to talk to the IRIS API."
+        echo -e "  ${CYAN}Install:${NC}  sudo apt install curl"
+        return
     fi
 
-    local rc
-    # shellcheck disable=SC2046
-    rc=$(curl -sf $(_ssl_flag) \
-         -H "Authorization: Bearer $IRIS_TOKEN" \
-         "${IRIS_URL}/api/v2/users/me" \
-         -o /dev/null -w "%{http_code}" 2>/dev/null) || true
+    if $token_set; then
+        log_info "Testing connection to $IRIS_URL ..."
+        local ssl_flag; [[ "$IRIS_VERIFY_SSL" == "false" ]] && ssl_flag="-k" || ssl_flag=""
+        local rc
+        # shellcheck disable=SC2086
+        rc=$(curl -sf $ssl_flag \
+             -H "Authorization: Bearer $IRIS_TOKEN" \
+             "${IRIS_URL}/api/v2/users/me" \
+             -o /dev/null -w "%{http_code}" 2>/dev/null) || true
 
-    if [[ "$rc" != "200" ]]; then
-        log_error "Cannot authenticate to IRIS (HTTP $rc)."
-        log_info  "Check IRIS_URL=$IRIS_URL and IRIS_TOKEN."
-        return 1
+        if [[ "$rc" == "200" ]]; then
+            log_success "Connected to IRIS successfully."
+        else
+            log_warning "Could not connect to IRIS (HTTP $rc). Check URL and token."
+        fi
+    else
+        log_warning "IRIS_TOKEN is not set — connection test skipped."
     fi
-    log_success "Authenticated to IRIS: $IRIS_URL"
-}
 
-_list_cases() {
-    log_info "Fetching case list..."
-    _iris GET "/api/v2/cases" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-cases = data.get('data', {}).get('cases', [])
-print(f\"  {'Case ID':<10} {'Status':<12} {'Name'}\")
-print('  ' + '-'*60)
-for c in cases:
-    cid    = str(c.get('case_id','?'))
-    status = c.get('case_close_date') and 'Closed' or 'Open'
-    name   = c.get('case_name','?')[:50]
-    print(f'  {cid:<10} {status:<12} {name}')
-" 2>/dev/null || log_warning "Could not parse case list."
+    echo
+    echo -e "  ${LABEL}How to use IRIS:${NC}"
+    echo
+    echo -e "  ${CYAN}Web UI:${NC}"
+    echo -e "    Open $IRIS_URL in your browser"
+    echo
+    echo -e "  ${CYAN}List cases via API:${NC}"
+    echo -e "    curl -s -H \"Authorization: Bearer \$IRIS_TOKEN\" \\"
+    echo -e "         \"\${IRIS_URL}/api/v2/cases\" | jq ."
+    echo
+    echo -e "  ${CYAN}Create a case via API:${NC}"
+    echo -e "    curl -s -X POST \\"
+    echo -e "         -H \"Authorization: Bearer \$IRIS_TOKEN\" \\"
+    echo -e "         -H \"Content-Type: application/json\" \\"
+    echo -e "         -d '{\"case_name\":\"IR-001\",\"case_description\":\"Phishing incident\",\"case_customer\":1,\"case_soc_id\":\"SOC-001\"}' \\"
+    echo -e "         \"\${IRIS_URL}/api/v2/cases\" | jq ."
+    echo
+    echo -e "  ${CYAN}Set credentials (add to your shell profile):${NC}"
+    echo -e "    export IRIS_URL=\"https://your-iris-host\""
+    echo -e "    export IRIS_TOKEN=\"your-api-token\""
+    echo
+    echo -e "  ${LABEL}Install IRIS (Docker — quickest):${NC}"
+    echo
+    echo -e "    git clone https://github.com/dfir-iris/iris-web.git"
+    echo -e "    cd iris-web"
+    echo -e "    cp .env.model .env   # edit as needed"
+    echo -e "    docker compose up -d"
+    echo
+    echo -e "  ${MUTED}Docs: https://docs.dfir-iris.org/${NC}"
 }
 
 clear; show_banner
 echo -e "  ${LABEL}IRIS — Incident Response Platform${NC}"
 echo
-kv "  IRIS URL" "$IRIS_URL"
+_check_iris
 echo
-_check_auth || exit 1
-echo
-_list_cases
+read -rp "$(echo -e "  ${MUTED}Press Enter to return to menu...${NC}")"

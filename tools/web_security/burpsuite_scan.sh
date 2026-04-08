@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/web_security/burpsuite_scan.sh
-# Burp Suite — presence checker (learning toolkit mode)
+# Burp Suite — installation check & usage instructions
 
 set -Eeuo pipefail
 
@@ -11,115 +11,77 @@ source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/config/settings.conf"
 
-
-detect_tool() {
-
-    for tool in "$@"; do
-
-        # PATH lookup
-        if command -v "$tool" &>/dev/null; then
-            command -v "$tool"
-            return 0
-        fi
-
+_find_burpsuite() {
+    # PATH lookup
+    for cmd in BurpSuiteCommunity BurpSuitePro burpsuite burpsuite_community burpsuite_pro; do
+        command -v "$cmd" &>/dev/null && echo "$cmd" && return 0
     done
-
 
     # Desktop launcher lookup
-    for tool in "$@"; do
-
-        local desktop_exec
-
-        desktop_exec=$(grep -h "^Exec=" \
-            "$HOME/.local/share/applications/"*.desktop \
-            /usr/share/applications/*.desktop 2>/dev/null \
-            | grep -i "$tool" \
-            | head -n1 \
-            | cut -d= -f2 \
-            | sed 's/%.//' \
-            | awk '{print $1}')
-
-        if [[ -n "$desktop_exec" ]]; then
-            echo "$desktop_exec"
-            return 0
-        fi
-
-    done
-
+    local desktop_exec
+    desktop_exec=$(grep -rh "^Exec=.*[Bb]urp" \
+        "$HOME/.local/share/applications/" \
+        /usr/share/applications/ 2>/dev/null \
+        | head -1 | cut -d= -f2- | awk '{print $1}') || true
+    [[ -n "$desktop_exec" ]] && echo "$desktop_exec" && return 0
 
     # Filesystem lookup
-    local search_paths=(
-        "$HOME"
-        /opt
-        /usr/local/bin
-        /usr/bin
-    )
-
-    for tool in "$@"; do
-
-        for path in "${search_paths[@]}"; do
-
-            local found
-
-            found=$(find "$path" -maxdepth 3 -iname "*$tool*" 2>/dev/null | head -n1)
-
-            if [[ -n "$found" ]]; then
-                echo "$found"
-                return 0
-            fi
-
-        done
-
-    done
-
+    local found
+    found=$(find "$HOME" /opt /usr/local /usr/bin -maxdepth 4 \
+        \( -iname "*burpsuite*" -o -iname "*burp_suite*" \) \
+        -type f 2>/dev/null | head -1) || true
+    [[ -n "$found" ]] && echo "$found" && return 0
 
     return 1
 }
 
-
-check_burpsuite() {
-
+_check_burpsuite() {
     local burp_path
-
-    if burp_path=$(detect_tool BurpSuiteCommunity burpsuite burpsuite_community); then
-
+    if burp_path=$(_find_burpsuite 2>/dev/null); then
         log_success "Burp Suite is installed."
         echo
-        echo -e "  ${INFO}Location:${NC} $burp_path"
+        kv "  Location" "$burp_path"
         echo
-        echo -e "  Open it manually from:"
-        echo -e "  • Application Menu"
-        echo -e "  • OR terminal command: ${CYAN}burpsuite${NC}"
-
+        echo -e "  ${LABEL}How to run:${NC}"
+        echo
+        echo -e "  ${CYAN}From terminal:${NC}"
+        echo -e "    burpsuite"
+        echo -e "    # or the full path: $burp_path"
+        echo
+        echo -e "  ${CYAN}From desktop:${NC}"
+        echo -e "    Search 'Burp Suite' in your application menu"
+        echo
+        echo -e "  ${LABEL}Quick-start tips:${NC}"
+        echo
+        echo -e "  1. Open Burp → Proxy → Intercept tab"
+        echo -e "  2. Configure your browser to proxy through 127.0.0.1:8080"
+        echo -e "  3. Browse the target app — requests appear in Intercept"
+        echo -e "  4. Use Scanner (Pro) or Active Scan extension (Community)"
+        echo
+        echo -e "  ${MUTED}Docs: https://portswigger.net/burp/documentation${NC}"
     else
-
         log_error "Burp Suite is NOT installed."
         echo
         echo -e "  ${LABEL}Install Instructions:${NC}"
         echo
-        echo -e "  1. Visit:"
-        echo -e "     https://portswigger.net/burp/communitydownload"
+        echo -e "  ${CYAN}Community Edition (free):${NC}"
+        echo -e "    https://portswigger.net/burp/communitydownload"
         echo
-        echo -e "  2. Download Linux installer (.sh)"
+        echo -e "  ${CYAN}Steps:${NC}"
+        echo -e "  1. Download the Linux installer (.sh) from the link above"
+        echo -e "  2. chmod +x burpsuite_community_linux_*.sh"
+        echo -e "  3. ./burpsuite_community_linux_*.sh"
+        echo -e "  4. Follow the installer wizard"
+        echo -e "  5. Launch from the Applications menu or run: burpsuite"
         echo
-        echo -e "  3. Run:"
-        echo -e "     ${CYAN}chmod +x burpsuite_community_linux.sh${NC}"
-        echo -e "     ${CYAN}./burpsuite_community_linux.sh${NC}"
-        echo
-        echo -e "  4. Launch from Applications menu after install"
-
+        echo -e "  ${CYAN}Kali Linux:${NC}"
+        echo -e "    sudo apt install burpsuite"
     fi
-
 }
 
-
-clear
-show_banner
-
+clear; show_banner
 echo -e "  ${LABEL}Burp Suite — Web Application Security Testing${NC}"
 echo
-
-check_burpsuite
-
+_check_burpsuite
 echo
 read -rp "$(echo -e "  ${MUTED}Press Enter to return to menu...${NC}")"

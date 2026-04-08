@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/threat_intelligence/misp_lookup.sh
-# MISP — query attributes (IPs, domains, hashes, CVEs) via REST API
+# MISP — installation check & usage instructions
 
 set -Eeuo pipefail
 
@@ -11,89 +11,73 @@ source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/config/settings.conf"
 
-OUTPUT_DIR="$PROJECT_ROOT/output/misp"
-LOG_FILE="$PROJECT_ROOT/logs/misp.log"
-mkdir -p "$OUTPUT_DIR"
-touch "$LOG_FILE"
-
-_log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
-
 MISP_URL="${MISP_URL:-https://misp.local}"
 MISP_KEY="${MISP_KEY:-}"
 MISP_VERIFY_SSL="${MISP_VERIFY_SSL:-true}"
 
-_ssl_flag() {
-    [[ "$MISP_VERIFY_SSL" == "false" ]] && echo "-k" || echo ""
-}
+_check_misp() {
+    local curl_ok=false misp_configured=false
 
-_check_auth() {
-    if [[ -z "$MISP_KEY" ]]; then
-        read -rsp "$(echo -e "  ${PROMPT}[?] MISP automation key: ${NC}")" MISP_KEY
-        echo
-    fi
+    command -v curl &>/dev/null && curl_ok=true
+    [[ -n "$MISP_KEY" ]] && misp_configured=true
 
-    local rc
-    # shellcheck disable=SC2046
-    rc=$(curl -sf $(_ssl_flag) \
-         -H "Authorization: $MISP_KEY" \
-         -H "Accept: application/json"  \
-         "${MISP_URL}/users/view/me"    \
-         -o /dev/null -w "%{http_code}" 2>/dev/null) || true
-
-    if [[ "$rc" != "200" ]]; then
-        log_error "Authentication failed (HTTP $rc). Check MISP_URL and MISP_KEY."
-        return 1
-    fi
-    log_success "Authenticated to MISP: $MISP_URL"
-}
-
-_misp_post() {
-    local endpoint="$1" payload="$2"
-    # shellcheck disable=SC2046
-    curl -sf $(_ssl_flag)                        \
-         -X POST                                 \
-         -H "Authorization: $MISP_KEY"           \
-         -H "Accept: application/json"           \
-         -H "Content-Type: application/json"     \
-         -d "$payload"                           \
-         "${MISP_URL}${endpoint}" 2>>"$LOG_FILE"
-}
-
-_pretty() {
-    command -v jq &>/dev/null && jq '.' || cat
-}
-
-_search_value() {
-    local value="$1" type="$2"
-    local label="${type:-any}"
-    log_info "Searching MISP for: $value (type: $label)"
-    _log "search: value=$value type=$type"
-
-    local payload
-    if [[ -n "$type" ]]; then
-        payload="{\"returnFormat\":\"json\",\"value\":\"${value}\",\"type\":\"${type}\",\"limit\":50}"
-    else
-        payload="{\"returnFormat\":\"json\",\"value\":\"${value}\",\"limit\":50}"
-    fi
-
-    local out_file="$OUTPUT_DIR/misp_$(date '+%Y%m%d_%H%M%S')_${value//\//_}.json"
-    _misp_post "/attributes/restSearch" "$payload" | _pretty | tee "$out_file"
+    echo -e "  ${LABEL}Configuration:${NC}"
     echo
-    log_success "Result saved: $out_file"
-    _log "result: $out_file"
-}
+    kv "  MISP URL"    "$MISP_URL"
+    kv "  API key set" "$( [[ -n "$MISP_KEY" ]] && echo "${SUCCESS}yes${NC}" || echo "${FAILURE}no${NC}" )"
+    kv "  SSL verify"  "$MISP_VERIFY_SSL"
+    echo
 
-_lookup_free() {
-    read -rp "$(echo -e "  ${PROMPT}[?] Value to search (IP, domain, hash, CVE, email, etc.): ${NC}")" val
-    _search_value "$val" ""
+    if ! $curl_ok; then
+        log_error "curl is not installed — required to talk to the MISP API."
+        echo -e "  ${CYAN}Install:${NC}  sudo apt install curl"
+        return
+    fi
+
+    if $misp_configured; then
+        log_info "Testing connection to $MISP_URL ..."
+        local ssl_flag; [[ "$MISP_VERIFY_SSL" == "false" ]] && ssl_flag="-k" || ssl_flag=""
+        local rc
+        # shellcheck disable=SC2086
+        rc=$(curl -sf $ssl_flag \
+             -H "Authorization: $MISP_KEY" \
+             -H "Accept: application/json" \
+             "${MISP_URL}/users/view/me" \
+             -o /dev/null -w "%{http_code}" 2>/dev/null) || true
+
+        if [[ "$rc" == "200" ]]; then
+            log_success "Connected to MISP successfully."
+        else
+            log_warning "Could not connect to MISP (HTTP $rc). Check URL and key."
+        fi
+    else
+        log_warning "MISP_KEY is not set — connection test skipped."
+    fi
+
+    echo
+    echo -e "  ${LABEL}How to use the MISP REST API:${NC}"
+    echo
+    echo -e "  ${CYAN}Search for an attribute (IP, domain, hash, etc.):${NC}"
+    echo -e "    curl -s -H \"Authorization: \$MISP_KEY\" \\"
+    echo -e "         -H \"Accept: application/json\" \\"
+    echo -e "         -H \"Content-Type: application/json\" \\"
+    echo -e "         -X POST \\"
+    echo -e "         -d '{\"returnFormat\":\"json\",\"value\":\"8.8.8.8\",\"limit\":10}' \\"
+    echo -e "         \"\${MISP_URL}/attributes/restSearch\" | jq ."
+    echo
+    echo -e "  ${CYAN}Set credentials (add to your shell profile or .env):${NC}"
+    echo -e "    export MISP_URL=\"https://your-misp-host\""
+    echo -e "    export MISP_KEY=\"your-automation-api-key\""
+    echo
+    echo -e "  ${CYAN}MISP Web UI:${NC}"
+    echo -e "    Open $MISP_URL in your browser"
+    echo
+    echo -e "  ${MUTED}Docs: https://www.misp-project.org/openapi/${NC}"
 }
 
 clear; show_banner
-echo -e "  ${LABEL}MISP Threat Intelligence Lookup${NC}"
+echo -e "  ${LABEL}MISP — Threat Intelligence Platform${NC}"
 echo
-kv "  MISP URL"   "$MISP_URL"
-kv "  SSL verify" "$MISP_VERIFY_SSL"
+_check_misp
 echo
-_check_auth || exit 1
-echo
-_lookup_free
+read -rp "$(echo -e "  ${MUTED}Press Enter to return to menu...${NC}")"

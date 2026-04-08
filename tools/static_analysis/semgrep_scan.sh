@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/static_analysis/semgrep_scan.sh
-# Semgrep — static analysis / SAST against a target codebase
+# Semgrep — installation check & usage instructions
 
 set -Eeuo pipefail
 
@@ -12,71 +12,54 @@ source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/config/settings.conf"
 
 CUSTOM_RULES="$TOOLS_DIR/configs/semgrep_rules.yaml"
-OUTPUT_DIR="$PROJECT_ROOT/output/semgrep"
-LOG_FILE="$PROJECT_ROOT/logs/semgrep.log"
-mkdir -p "$OUTPUT_DIR"
-touch "$LOG_FILE"
-
-_log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
 
 _check_semgrep() {
-    if ! command -v semgrep &>/dev/null; then
-        log_error "Semgrep not found."
-        log_info  "Install: pip3 install semgrep --break-system-packages"
-        return 1
-    fi
-    log_success "Semgrep: $(semgrep --version 2>&1 | head -1)"
-}
-
-_scan() {
-    local target="$1"
-    local rule_arg="$2"
-    local label="$3"
-    local report_file="$OUTPUT_DIR/semgrep_$(date '+%Y%m%d_%H%M%S').json"
-
-    log_info "Running Semgrep [$label] on: $target"
-    _log "semgrep: rules=$rule_arg target=$target"
-
-    semgrep --config "$rule_arg" \
-            "$target"            \
-            --json               \
-            --no-error-on-empty-scan \
-            --output "$report_file" \
-            2>&1 | tee -a "$LOG_FILE" || true
-
-    if command -v jq &>/dev/null && [[ -s "$report_file" ]]; then
-        local total errors warnings info
-        total=$(jq '.results | length' "$report_file" 2>/dev/null || echo "?")
-        errors=$(jq '[.results[] | select(.extra.severity=="ERROR")] | length' "$report_file" 2>/dev/null || echo "?")
-        warnings=$(jq '[.results[] | select(.extra.severity=="WARNING")] | length' "$report_file" 2>/dev/null || echo "?")
-        info=$(jq '[.results[] | select(.extra.severity=="INFO")] | length' "$report_file" 2>/dev/null || echo "?")
-
+    if command -v semgrep &>/dev/null; then
+        log_success "Semgrep is installed."
         echo
-        echo -e "  ${LABEL}Summary${NC}"
-        kv "  Total findings" "$total"
-        kv "  Errors"         "${RED}${errors}${NC}"
-        kv "  Warnings"       "${AMBER}${warnings}${NC}"
-        kv "  Info"           "${CYAN}${info}${NC}"
+        kv "  semgrep"      "$(command -v semgrep)"
+        kv "  version"      "$(semgrep --version 2>&1 | head -1)"
+        kv "  custom rules" "$CUSTOM_RULES"
         echo
-        echo -e "  ${LABEL}Top findings:${NC}"
-        jq -r '.results[] | "  [\(.extra.severity)] \(.path):\(.start.line) — \(.check_id)"' \
-            "$report_file" 2>/dev/null | head -20 || true
+        echo -e "  ${LABEL}How to run:${NC}"
+        echo
+        echo -e "  ${CYAN}Auto-detect language and rules:${NC}"
+        echo -e "    semgrep --config auto /path/to/code"
+        echo
+        echo -e "  ${CYAN}Use toolkit custom rules:${NC}"
+        echo -e "    semgrep --config ${CUSTOM_RULES} /path/to/code"
+        echo
+        echo -e "  ${CYAN}Scan with a specific ruleset (e.g. OWASP):${NC}"
+        echo -e "    semgrep --config p/owasp-top-ten /path/to/code"
+        echo
+        echo -e "  ${CYAN}Output as JSON:${NC}"
+        echo -e "    semgrep --config auto /path/to/code --json --output report.json"
+        echo
+        echo -e "  ${CYAN}Scan current directory:${NC}"
+        echo -e "    semgrep --config auto ."
+        echo
+        echo -e "  ${MUTED}Browse public rules: https://semgrep.dev/r${NC}"
+    else
+        log_error "Semgrep is NOT installed."
+        echo
+        echo -e "  ${LABEL}Install Instructions:${NC}"
+        echo
+        echo -e "  ${CYAN}pip (all distros):${NC}"
+        echo -e "    pip3 install semgrep --break-system-packages"
+        echo
+        echo -e "  ${CYAN}Homebrew (macOS / Linuxbrew):${NC}"
+        echo -e "    brew install semgrep"
+        echo
+        echo -e "  ${CYAN}Docker:${NC}"
+        echo -e "    docker run --rm -v \"\${PWD}:/src\" semgrep/semgrep semgrep --config auto /src"
+        echo
+        echo -e "  ${MUTED}Docs: https://semgrep.dev/docs/getting-started${NC}"
     fi
-
-    log_success "Report saved: $report_file"
-    _log "Scan complete: $report_file (findings: ${total:-?})"
-}
-
-_scan_auto() {
-    _check_semgrep || return 1
-
-    read -rp "$(echo -e "  ${PROMPT}[?] Target path (file or directory): ${NC}")" target
-    [[ ! -e "$target" ]] && log_error "Path not found: $target" && return 1
-
-    _scan "$target" "auto" "auto-detect"
 }
 
 clear; show_banner
 echo -e "  ${LABEL}Semgrep — Static Analysis / SAST${NC}"
 echo
-_scan_auto
+_check_semgrep
+echo
+read -rp "$(echo -e "  ${MUTED}Press Enter to return to menu...${NC}")"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/reverse_engineering/ghidra_launcher.sh
-# Ghidra — NSA reverse engineering framework launcher
+# Ghidra — installation check & usage instructions
 
 set -Eeuo pipefail
 
@@ -11,15 +11,7 @@ source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/config/settings.conf"
 
-OUTPUT_DIR="$PROJECT_ROOT/output/ghidra"
-LOG_FILE="$PROJECT_ROOT/logs/ghidra.log"
-GHIDRA_PROJECTS_DIR="$OUTPUT_DIR/projects"
-mkdir -p "$OUTPUT_DIR" "$GHIDRA_PROJECTS_DIR"
-touch "$LOG_FILE"
-
-_log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
-
-_find_ghidra_home() {
+_find_ghidra() {
     local candidates=(
         "${GHIDRA_HOME:-}"
         /opt/ghidra
@@ -27,74 +19,85 @@ _find_ghidra_home() {
         "$HOME/ghidra"
         /usr/local/ghidra
     )
-
     for d in "${candidates[@]}"; do
         [[ -n "$d" && -x "${d}/ghidraRun" ]] && echo "$d" && return 0
     done
-
-    if command -v ghidraRun &>/dev/null; then
-        dirname "$(command -v ghidraRun)"
-        return 0
-    fi
-
+    command -v ghidraRun &>/dev/null && dirname "$(command -v ghidraRun)" && return 0
+    # Wider filesystem search (max depth 4 to avoid long scans)
+    local found
+    found=$(find /opt "$HOME" /usr/local -maxdepth 4 -name "ghidraRun" -type f 2>/dev/null | head -1)
+    [[ -n "$found" ]] && dirname "$found" && return 0
     return 1
 }
 
 _check_java() {
-    if ! command -v java &>/dev/null; then
-        log_error "Java not found. Ghidra requires Java 17+."
-        log_info  "Install: apt install default-jdk  |  dnf install java-17-openjdk"
+    if command -v java &>/dev/null; then
+        local jver
+        jver=$(java -version 2>&1 | head -1)
+        kv "  Java" "$jver"
+        return 0
+    else
+        kv "  Java" "${FAILURE}not found${NC}"
         return 1
     fi
-    local jver
-    jver=$(java -version 2>&1 | head -1)
-    log_info "Java: $jver"
 }
 
-_install_guide() {
-    echo
-    echo -e "  ${LABEL}Ghidra Installation${NC}"
-    echo
-    echo -e "  1. Download from: ${CYAN}https://ghidra-sre.org/${NC}"
-    echo -e "  2. Extract: ${MUTED}unzip ghidra_*.zip -d /opt/ghidra${NC}"
-    echo -e "  3. Set GHIDRA_HOME: ${MUTED}export GHIDRA_HOME=/opt/ghidra/ghidra_*${NC}"
-    echo -e "     (add to /etc/environment or your shell profile)"
-    echo -e "  4. Java 17+ required: ${MUTED}apt install default-jdk${NC}"
-    echo
-}
+_check_ghidra() {
+    local ghidra_home=""
+    ghidra_home=$(_find_ghidra 2>/dev/null) || true
 
-_launch_gui() {
-    _check_java || return 1
+    echo -e "  ${LABEL}Environment:${NC}"
+    echo
+    _check_java || true
 
-    if [[ -z "${DISPLAY:-}" ]]; then
-        log_error "No DISPLAY detected. Cannot launch Ghidra GUI in headless environment."
-        return 1
+    if [[ -n "$ghidra_home" ]]; then
+        kv "  Ghidra home" "$ghidra_home"
+        echo
+        log_success "Ghidra is installed."
+        echo
+        echo -e "  ${LABEL}How to run:${NC}"
+        echo
+        echo -e "  ${CYAN}GUI (interactive):${NC}"
+        echo -e "    ${ghidra_home}/ghidraRun"
+        echo
+        echo -e "  ${CYAN}Headless analysis (no GUI):${NC}"
+        echo -e "    ${ghidra_home}/support/analyzeHeadless \\"
+        echo -e "        /tmp/myproject MyProject \\"
+        echo -e "        -import /path/to/binary \\"
+        echo -e "        -postScript MyScript.java"
+        echo
+        echo -e "  ${CYAN}Set GHIDRA_HOME for convenience (add to shell profile):${NC}"
+        echo -e "    export GHIDRA_HOME=\"${ghidra_home}\""
+        echo -e "    alias ghidra=\"\$GHIDRA_HOME/ghidraRun\""
+        echo
+        echo -e "  ${MUTED}Docs: https://ghidra-sre.org/CheatSheet.html${NC}"
+    else
+        kv "  Ghidra home" "${FAILURE}not found${NC}"
+        echo
+        log_error "Ghidra is NOT installed."
+        echo
+        echo -e "  ${LABEL}Install Instructions:${NC}"
+        echo
+        echo -e "  ${CYAN}1. Install Java 17+ (required):${NC}"
+        echo -e "    sudo apt install default-jdk          # Debian / Ubuntu"
+        echo -e "    sudo dnf install java-17-openjdk      # RHEL / Fedora"
+        echo -e "    sudo pacman -S jdk17-openjdk          # Arch"
+        echo
+        echo -e "  ${CYAN}2. Download Ghidra:${NC}"
+        echo -e "    https://ghidra-sre.org/"
+        echo
+        echo -e "  ${CYAN}3. Extract and run:${NC}"
+        echo -e "    unzip ghidra_*.zip -d /opt/ghidra"
+        echo -e "    /opt/ghidra/ghidra_*/ghidraRun"
+        echo
+        echo -e "  ${CYAN}4. (Optional) set GHIDRA_HOME in your shell profile:${NC}"
+        echo -e "    export GHIDRA_HOME=/opt/ghidra/ghidra_*"
     fi
-
-    local ghidra_home
-    if ! ghidra_home=$(_find_ghidra_home 2>/dev/null); then
-        log_error "Ghidra not found."
-        _install_guide
-        return 1
-    fi
-
-    log_info "Launching Ghidra from: $ghidra_home"
-    _log "GUI launch: $ghidra_home"
-    "$ghidra_home/ghidraRun" &>/dev/null &
-    disown
-    log_success "Ghidra launched (PID: $!)."
 }
 
 clear; show_banner
 echo -e "  ${LABEL}Ghidra — Reverse Engineering Framework${NC}"
 echo
-
-ghidra_home=""
-if ghidra_home=$(_find_ghidra_home 2>/dev/null); then
-    kv "  Ghidra home" "$ghidra_home"
-else
-    kv "  Ghidra home" "${FAILURE}Not found${NC}"
-fi
+_check_ghidra
 echo
-
-_launch_gui
+read -rp "$(echo -e "  ${MUTED}Press Enter to return to menu...${NC}")"
