@@ -44,6 +44,9 @@ PM_UPDATE=""
 DISTRO=""
 DISTRO_FAMILY=""
 
+source "$PROJECT_ROOT/lib/setup_wireshark_permissions.sh"
+setup_wireshark_permissions
+
 detect_distro() {
     if [[ -f /etc/os-release ]]; then
         # shellcheck disable=SC1091
