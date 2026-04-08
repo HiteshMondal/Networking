@@ -47,13 +47,11 @@ _menu_network_analysis() {
         clear; show_banner
         _tool_header "Network Analysis"
         echo -e "  ${GREEN}  1.${NC}  Wireshark (packet capture / GUI)"
-        echo -e "  ${GREEN}  2.${NC}  Snort IDS (intrusion detection)"
         echo -e "  ${RED}  0.${NC}  Back"
         echo
         read -rp "$(echo -e "  ${PROMPT}[?] Choice: ${NC}")" ch
         case $ch in
             1) bash "$TOOLS_DIR/network_analysis/wireshark.sh"    ; _pause ;;
-            2) bash "$TOOLS_DIR/network_analysis/snort_ids.sh"    ; _pause ;;
             0) break ;;
             *) log_error "Invalid choice." ; sleep 1 ;;
         esac
@@ -64,14 +62,12 @@ _menu_vuln_scan() {
     while true; do
         clear; show_banner
         _tool_header "Vulnerability Scanning"
-        echo -e "  ${GREEN}  1.${NC}  OpenVAS Scan"
-        echo -e "  ${GREEN}  2.${NC}  Kube-Hunter (Kubernetes)"
+        echo -e "  ${GREEN}  1.${NC}  Kube-Hunter (Kubernetes)"
         echo -e "  ${RED}  0.${NC}  Back"
         echo
         read -rp "$(echo -e "  ${PROMPT}[?] Choice: ${NC}")" ch
         case $ch in
-            1) bash "$TOOLS_DIR/vulnerability_scanning/openvas_scan.sh"    ; _pause ;;
-            2) bash "$TOOLS_DIR/vulnerability_scanning/kubehunter_scan.sh" ; _pause ;;
+            1) bash "$TOOLS_DIR/vulnerability_scanning/kubehunter_scan.sh" ; _pause ;;
             0) break ;;
             *) log_error "Invalid choice." ; sleep 1 ;;
         esac
@@ -190,10 +186,10 @@ show_tools_menu() {
     echo -e "${BORDER}${border}${NC}"
     echo
     echo -e "  ${LABEL}NETWORK${NC}"
-    echo -e "  ${GREEN}  1.${NC}  Network Analysis     (Wireshark, Snort)"
+    echo -e "  ${GREEN}  1.${NC}  Network Analysis     (Wireshark)"
     echo
     echo -e "  ${LABEL}SCANNING${NC}"
-    echo -e "  ${GREEN}  2.${NC}  Vulnerability Scan   (OpenVAS, Kube-Hunter)"
+    echo -e "  ${GREEN}  2.${NC}  Vulnerability Scan   (Kube-Hunter)"
     echo -e "  ${GREEN}  3.${NC}  Static Analysis      (Semgrep)"
     echo -e "  ${GREEN}  4.${NC}  Web Security         (Burp Suite)"
     echo
