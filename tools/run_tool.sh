@@ -5,8 +5,8 @@
 
 set -Eeuo pipefail
 
-TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-"$(cd "$TOOLS_DIR/.." && pwd)"}"
 
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"
@@ -18,7 +18,7 @@ _tool_header() {
     local title="$1"
     local W=50
     local border
-    border=$(printf '%*s' "$W" '' | tr ' ' '─')
+    border=$(printf '%*s' "$W" '' | tr ' ' '-')
     echo
     echo -e "  ${BORDER}${border}${NC}"
     printf "  ${BORDER}│${NC}  ${TITLE}%-$((W-4))s${NC}  ${BORDER}│${NC}\n" "$title"

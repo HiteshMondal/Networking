@@ -4,8 +4,8 @@
 
 set -Eeuo pipefail
 
-TOOLS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PROJECT_ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-"$(cd "$TOOLS_DIR/.." && pwd)"}"
 
 source "$PROJECT_ROOT/lib/colors.sh"
 source "$PROJECT_ROOT/lib/functions.sh"

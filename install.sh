@@ -124,6 +124,13 @@ declare -a PKG_MAP=(
     "ss|iproute2|iproute|iproute2|iproute2|iproute2|iproute2"
     "awk|gawk|gawk|gawk|gawk|gawk|gawk"
     "python3|python3|python3|python|python3|python3|python3"
+    "wireshark|wireshark-common|wireshark-cli|wireshark-cli|wireshark|wireshark|wireshark"
+    "tshark|tshark|wireshark-cli|wireshark-cli|wireshark|tshark|tshark"
+    "snort|snort|snort|snort|||"
+    "semgrep|||||||"
+    "strings|binutils|binutils|binutils|binutils|binutils|binutils"
+    "readelf|binutils|binutils|binutils|binutils|binutils|binutils"
+    "java|default-jdk|java-17-openjdk|jdk17-openjdk|java-17-openjdk|openjdk17|openjdk"
 )
 
 #  Resolve package name for current PM
@@ -238,6 +245,21 @@ install_python_deps() {
             log_warn "Try manually: pip3 install psutil --break-system-packages"
         fi
     fi
+
+    # Semgrep & GVM tools
+    for pypkg in semgrep gvm-tools; do
+        if python3 -c "import ${pypkg//-/_}" &>/dev/null 2>&1; then
+            log_ok "$pypkg already installed"
+        else
+            log_info "Installing $pypkg..."
+            if python3 -m pip install "$pypkg" --break-system-packages --quiet 2>/dev/null ||
+               python3 -m pip install "$pypkg" --quiet 2>/dev/null; then
+                log_ok "$pypkg installed"
+            else
+                log_warn "$pypkg install failed — install manually: pip3 install $pypkg"
+            fi
+        fi
+    done
     echo
 }
 
@@ -253,7 +275,7 @@ verify_tools() {
         tcpdump ss awk python3
     )
     local optional_tools=(
-        masscan nikto gobuster whatweb sslscan netstat
+        masscan nikto gobuster whatweb sslscan netstat wireshark tshark snort semgrep java ghidra kube-hunter
     )
 
     local ok=0 missing=0 optional_missing=0

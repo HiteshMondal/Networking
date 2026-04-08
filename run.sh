@@ -25,6 +25,7 @@ source "$PROJECT_ROOT/lib/functions.sh"
 source "$PROJECT_ROOT/modules/run_modules.sh"
 source "$PROJECT_ROOT/network_lab/network_lab.sh"
 source "$PROJECT_ROOT/dashboard/start_dashboard.sh"
+source "$PROJECT_ROOT/tools/run_tool.sh"
 
 # Directory setup
 MODULES_DIR="$PROJECT_ROOT/modules"
@@ -61,6 +62,9 @@ show_main_menu() {
     echo
     echo -e "  ${LABEL}NETWORK LAB${NC}"
     echo -e "  ${GREEN}  6.${NC}  Network Lab"
+    echo
+    echo -e "  ${LABEL}TOOLS${NC}"
+    echo -e "  ${GREEN}  8.${NC}  Tools Hub"
     echo
     echo -e "  ${RED}  0.${NC}  Exit"
     echo
@@ -170,6 +174,7 @@ main() {
             5) show_system_info ;;
             6) network_lab ;;
             7) stop_dashboard ;;
+            8) run_tools_hub ;;
             0)
                 clear
                 show_banner
